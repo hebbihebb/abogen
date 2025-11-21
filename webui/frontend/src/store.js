@@ -251,10 +251,34 @@ export const useStore = create((set, get) => ({
 
     ws.onclose = () => {
       console.log('WebSocket disconnected');
-      set({ ws: null, processing: false });
+      set({ ws: null });
+
+      // Poll for final job status after disconnect
+      get().pollJobStatus(jobId);
     };
 
     set({ ws });
+  },
+
+  pollJobStatus: async (jobId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}`);
+      const jobData = await response.json();
+
+      set({
+        jobStatus: jobData,
+        progress: jobData.progress || 100,
+        processing: jobData.status === 'processing'
+      });
+
+      // If still processing, poll again after a delay
+      if (jobData.status === 'processing') {
+        setTimeout(() => get().pollJobStatus(jobId), 2000);
+      }
+    } catch (error) {
+      console.error('Failed to poll job status:', error);
+      set({ processing: false });
+    }
   },
 
   downloadOutput: async (jobId) => {
