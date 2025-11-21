@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
-const API_URL = 'http://localhost:8000';
+// Dynamically determine API URL based on current host
+const API_URL = `http://${window.location.hostname}:8000`;
 
 export const useStore = create((set, get) => ({
   // File state
@@ -22,7 +23,7 @@ export const useStore = create((set, get) => ({
     maxSubtitleWords: 10,
     outputFormat: 'wav',
     replaceSingleNewlines: false,
-    useGpu: false,
+    use_gpu: true,
     separateChapters: false,
     separateChaptersFormat: 'wav',
     silenceBetweenChapters: 1.0,
@@ -130,6 +131,60 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  uploadReferenceAudio: async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_URL}/api/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const fileInfo = await response.json();
+
+      // Update config with the uploaded file path
+      set((state) => ({
+        config: { ...state.config, referenceAudio: fileInfo.path }
+      }));
+
+      return fileInfo;
+    } catch (error) {
+      console.error('Failed to upload reference audio:', error);
+      throw error;
+    }
+  },
+
+  loadDemo: async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/demo/load`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load demo files');
+      }
+
+      const data = await response.json();
+
+      set((state) => ({
+        file: { name: data.file_info.filename }, // Mock file object
+        fileInfo: data.file_info,
+        showChapterSelector: true,
+        config: {
+          ...state.config,
+          engine: 'f5_tts',
+          referenceAudio: data.reference_audio
+        }
+      }));
+
+      return data;
+    } catch (error) {
+      console.error('Failed to load demo:', error);
+      throw error;
+    }
+  },
+
   startConversion: async () => {
     const { fileInfo, config, selectedChapters } = get();
 
@@ -170,7 +225,9 @@ export const useStore = create((set, get) => ({
   },
 
   connectWebSocket: (jobId) => {
-    const ws = new WebSocket(`ws://localhost:8000/ws/${jobId}`);
+    // Construct WebSocket URL from API_URL (http://host:port -> ws://host:port)
+    const wsUrl = API_URL.replace('http://', 'ws://').replace('https://', 'wss://');
+    const ws = new WebSocket(`${wsUrl}/ws/${jobId}`);
 
     ws.onopen = () => {
       console.log('WebSocket connected');

@@ -31,9 +31,8 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from abogen import book_handler, constants, conversion, utils
-from abogen.tts_backends import get_backend, list_backends
-from abogen.voice_formulas import VoiceFormula
-from abogen.voice_profiles import VoiceProfileManager
+from abogen.tts_backends import create_tts_engine, get_available_engines
+from abogen import voice_profiles
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +53,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve built frontend if present
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 
 # Global state management
 class JobManager:
@@ -177,7 +181,7 @@ async def root():
 async def get_engines():
     """Get list of available TTS engines"""
     try:
-        engines = list_backends()
+        engines = get_available_engines()
         return {"engines": engines}
     except Exception as e:
         logger.error(f"Error getting engines: {e}")
@@ -188,23 +192,25 @@ async def get_engines():
 async def get_voices(engine: str):
     """Get available voices for an engine"""
     try:
-        backend_class = get_backend(engine)
-
         if engine == "kokoro":
             # Get Kokoro voices
             voices = []
-            for voice_id, voice_info in constants.KOKORO_VOICES.items():
+            for voice_id in constants.VOICES_INTERNAL:
+                # Parse language from voice ID (e.g., "af_heart" -> "a")
+                lang_code = voice_id[0]
+                lang_name = constants.LANGUAGE_DESCRIPTIONS.get(lang_code, "Unknown")
+                
                 voices.append({
                     "id": voice_id,
-                    "name": voice_info["name"],
-                    "language": voice_info.get("language", "en"),
+                    "name": voice_id,  # Use ID as name since we don't have pretty names
+                    "language": lang_name,
                 })
             return {"voices": voices}
         elif engine == "f5_tts":
             # F5-TTS uses custom reference audio
             return {"voices": [], "requires_reference": True}
         else:
-            return {"voices": []}
+            raise HTTPException(status_code=400, detail=f"Unknown engine: {engine}")
     except Exception as e:
         logger.error(f"Error getting voices for {engine}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -214,8 +220,7 @@ async def get_voices(engine: str):
 async def get_voice_profiles():
     """Get saved voice profiles"""
     try:
-        profile_manager = VoiceProfileManager()
-        profiles = profile_manager.list_profiles()
+        profiles = voice_profiles.load_profiles()
         return {"profiles": profiles}
     except Exception as e:
         logger.error(f"Error getting voice profiles: {e}")
@@ -226,8 +231,9 @@ async def get_voice_profiles():
 async def save_voice_profile(name: str = Form(...), formula: str = Form(...)):
     """Save a voice profile"""
     try:
-        profile_manager = VoiceProfileManager()
-        profile_manager.save_profile(name, formula)
+        profiles = voice_profiles.load_profiles()
+        profiles[name] = formula
+        voice_profiles.save_profiles(profiles)
         return {"status": "success", "message": f"Profile '{name}' saved"}
     except Exception as e:
         logger.error(f"Error saving voice profile: {e}")
@@ -238,8 +244,10 @@ async def save_voice_profile(name: str = Form(...), formula: str = Form(...)):
 async def delete_voice_profile(name: str):
     """Delete a voice profile"""
     try:
-        profile_manager = VoiceProfileManager()
-        profile_manager.delete_profile(name)
+        profiles = voice_profiles.load_profiles()
+        if name in profiles:
+            del profiles[name]
+            voice_profiles.save_profiles(profiles)
         return {"status": "success", "message": f"Profile '{name}' deleted"}
     except Exception as e:
         logger.error(f"Error deleting voice profile: {e}")
@@ -367,14 +375,18 @@ async def run_conversion(job_id: str):
         job_manager.add_log(job_id, f"Loading {engine} engine...", "info")
 
         device = "cuda" if config.get("use_gpu", False) else "cpu"
-        backend = get_backend(engine)(lang_code="en-us", device=device)
+        backend = create_tts_engine(engine, lang_code="en-us", device=device)
 
         # Get voice
         voice = config.get("voice", "af_heart")
         voice_formula = config.get("voice_formula")
+        reference_audio = config.get("referenceAudio")
 
         if voice_formula and backend.supports_voice_mixing:
             voice = voice_formula
+        elif reference_audio:
+            # If reference audio is provided (e.g. for F5-TTS), use it as the voice
+            voice = reference_audio
 
         job_manager.add_log(job_id, f"Using voice: {voice}", "info")
 
@@ -384,15 +396,23 @@ async def run_conversion(job_id: str):
 
         audio_chunks = []
         total_chunks = 0
+        sample_rate = None
 
         for i, result in enumerate(backend(text, voice, speed, None)):
             audio_chunks.append(result.audio)
             total_chunks += 1
+            if sample_rate is None:
+                sample_rate = getattr(result, "sample_rate", None)
             progress = min(90, (i + 1) * 10)  # Cap at 90% until encoding
             job_manager.update_progress(job_id, progress)
             job_manager.add_log(job_id, f"Generated chunk {i+1}", "debug")
 
         job_manager.add_log(job_id, f"Generated {total_chunks} audio chunks", "info")
+
+        if not audio_chunks:
+            raise ValueError("No audio was generated; check input text and engine configuration.")
+        if sample_rate is None:
+            raise ValueError("Sample rate missing from TTS backend output.")
 
         # Combine audio chunks
         import numpy as np
@@ -406,7 +426,7 @@ async def run_conversion(job_id: str):
 
         # Save using soundfile
         import soundfile as sf
-        sf.write(str(output_path), combined_audio, backend.sample_rate)
+        sf.write(str(output_path), combined_audio, sample_rate)
 
         job_manager.update_progress(job_id, 100)
         job_manager.add_log(job_id, "Conversion complete!", "success")
@@ -497,6 +517,100 @@ async def update_config(config: dict):
         logger.error(f"Error updating config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.websocket("/ws/system")
+async def system_monitor_websocket(websocket: WebSocket):
+    """WebSocket endpoint for system resource monitoring"""
+    await websocket.accept()
+    try:
+        import psutil
+        import asyncio
+        
+        # Try to import GPU monitoring (optional)
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            gpu_available = True
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # First GPU
+        except:
+            gpu_available = False
+        
+        while True:
+            # Get CPU usage
+            cpu_percent = psutil.cpu_percent(interval=0.5)
+            
+            # Get memory usage
+            memory = psutil.virtual_memory()
+            
+            # Get GPU usage if available
+            gpu_percent = None
+            if gpu_available:
+                try:
+                    utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                    gpu_percent = utilization.gpu
+                except:
+                    gpu_percent = None
+            
+            # Send data
+            await websocket.send_json({
+                "cpu": cpu_percent,
+                "memory": memory.percent,
+                "gpu": gpu_percent
+            })
+            
+            await asyncio.sleep(2)  # Update every 2 seconds
+    except Exception as e:
+        logger.info(f"System monitor WebSocket closed: {e}")
+    finally:
+        if gpu_available:
+            try:
+                pynvml.nvmlShutdown()
+            except:
+                pass
+
+
+@app.post("/api/demo/load")
+async def load_demo():
+    """Load demo files for testing"""
+    try:
+        project_root = Path(__file__).parent.parent.parent
+        demo_dir = project_root / "demo"
+        sample_epub = demo_dir / "sample.epub"
+        sample_voice = demo_dir / "t5_voice.wav"
+
+        if not sample_epub.exists() or not sample_voice.exists():
+            raise HTTPException(status_code=404, detail="Demo files not found")
+
+        # Copy to temp dir to simulate upload
+        temp_epub = job_manager.temp_dir / f"{uuid.uuid4()}_sample.epub"
+        temp_voice = job_manager.temp_dir / f"{uuid.uuid4()}_t5_voice.wav"
+
+        import shutil
+        shutil.copy2(sample_epub, temp_epub)
+        shutil.copy2(sample_voice, temp_voice)
+
+        # Process EPUB
+        chapters = book_handler.extract_epub_chapters(str(temp_epub))
+        
+        epub_info = {
+            "path": str(temp_epub),
+            "filename": "sample.epub",
+            "size": temp_epub.stat().st_size,
+            "type": "epub",
+            "chapters": [
+                {"title": ch.get("title", f"Chapter {i+1}"), "index": i}
+                for i, ch in enumerate(chapters)
+            ]
+        }
+
+        return {
+            "file_info": epub_info,
+            "reference_audio": str(temp_voice)
+        }
+
+    except Exception as e:
+        logger.error(f"Error loading demo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

@@ -6,6 +6,7 @@ import ProcessingPanel from './components/ProcessingPanel';
 import LogViewer from './components/LogViewer';
 import ChapterSelector from './components/ChapterSelector';
 import VoiceMixer from './components/VoiceMixer';
+import SystemMonitor from './components/SystemMonitor';
 import Settings from './components/Settings';
 import useStore from './store';
 
@@ -22,15 +23,26 @@ function App() {
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Mic2 className="h-6 w-6 text-white" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-600 p-2 rounded-lg">
+                <Mic2 className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Abogen</h1>
+                <p className="text-sm text-gray-500">
+                  Text-to-Speech Audio Generator
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Abogen</h1>
-              <p className="text-sm text-gray-500">
-                Text-to-Speech Audio Generator
-              </p>
+            <div className="flex items-center gap-4">
+              <SystemMonitor />
+              <button
+                onClick={() => useStore.getState().loadDemo()}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                Load Demo
+              </button>
             </div>
           </div>
         </div>

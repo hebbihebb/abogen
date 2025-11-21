@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { Settings, Sliders } from 'lucide-react';
+import { Settings, Sliders, Upload, X, FileAudio } from 'lucide-react';
+import { useDropzone } from 'react-dropzone';
 import useStore from '../store';
 
 const TTSControls = () => {
@@ -12,7 +13,31 @@ const TTSControls = () => {
     fetchVoices,
     toggleSettings,
     toggleVoiceMixer,
+    uploadReferenceAudio,
   } = useStore();
+
+  const onDropReference = async (acceptedFiles) => {
+    if (acceptedFiles.length > 0) {
+      try {
+        await uploadReferenceAudio(acceptedFiles[0]);
+      } catch (error) {
+        console.error('Error uploading reference audio:', error);
+      }
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: onDropReference,
+    accept: {
+      'audio/wav': ['.wav'],
+      'audio/x-wav': ['.wav'],
+    },
+    multiple: false,
+  });
+
+  const clearReferenceAudio = () => {
+    updateConfig({ referenceAudio: null });
+  };
 
   useEffect(() => {
     fetchEngines();
@@ -88,16 +113,51 @@ const TTSControls = () => {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Reference Audio
           </label>
-          <input
-            type="text"
-            value={config.referenceAudio || ''}
-            onChange={(e) => updateConfig({ referenceAudio: e.target.value })}
-            placeholder="Path to reference audio file (.wav)"
-            className="input-field"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Provide a WAV file with the voice you want to clone
-          </p>
+
+          {!config.referenceAudio ? (
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${isDragActive
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+                }`}
+            >
+              <input {...getInputProps()} />
+              <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+              <p className="text-sm font-medium text-gray-700">
+                {isDragActive ? 'Drop WAV here' : 'Click or drag WAV file'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Required for voice cloning
+              </p>
+            </div>
+          ) : (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <FileAudio className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                <span className="text-sm text-gray-700 truncate" title={config.referenceAudio}>
+                  {config.referenceAudio.split(/[/\\]/).pop()}
+                </span>
+              </div>
+              <button
+                onClick={clearReferenceAudio}
+                className="p-1 hover:bg-blue-100 rounded-full text-gray-500 hover:text-red-500 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="mt-2">
+            <p className="text-xs text-gray-500 mb-1">Or enter path manually:</p>
+            <input
+              type="text"
+              value={config.referenceAudio || ''}
+              onChange={(e) => updateConfig({ referenceAudio: e.target.value })}
+              placeholder="/path/to/audio.wav"
+              className="input-field text-xs py-1"
+            />
+          </div>
         </div>
       )}
 

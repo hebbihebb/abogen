@@ -38,7 +38,7 @@ fi
 # Start backend
 echo "🔵 Starting backend server..."
 cd "$SCRIPT_DIR/backend"
-python main.py &
+/mnt/Games/conda_envs/abogen/bin/python main.py &
 BACKEND_PID=$!
 cd "$SCRIPT_DIR"
 
@@ -48,7 +48,7 @@ sleep 3
 # Start frontend
 echo "🟢 Starting frontend server..."
 cd "$SCRIPT_DIR/frontend"
-npm run dev &
+npm run dev -- --host &
 FRONTEND_PID=$!
 cd "$SCRIPT_DIR"
 

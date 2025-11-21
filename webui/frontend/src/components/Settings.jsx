@@ -144,6 +144,33 @@ const Settings = () => {
             </div>
           </div>
 
+          {/* Performance Settings */}
+          <div className="border-t pt-6">
+            <h3 className="text-lg font-medium text-gray-800 mb-3">
+              Performance
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="font-medium text-gray-700">
+                    Use GPU Acceleration
+                  </label>
+                  <p className="text-sm text-gray-500">
+                    Faster processing with CUDA-enabled GPU
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={config.use_gpu}
+                  onChange={(e) =>
+                    updateConfig({ use_gpu: e.target.checked })
+                  }
+                  className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* About */}
           <div className="border-t pt-6">
             <h3 className="text-lg font-medium text-gray-800 mb-3">About</h3>
