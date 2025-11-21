@@ -1,0 +1,367 @@
+"""
+F5-TTS backend implementation for Abogen.
+
+This backend provides high-quality TTS synthesis using the F5-TTS diffusion model
+with zero-shot voice cloning capabilities from reference audio.
+"""
+
+import re
+import logging
+import numpy as np
+from pathlib import Path
+from typing import Iterator, Optional
+from .base import TTSResult, TTSBackend
+
+logger = logging.getLogger(__name__)
+
+
+class F5TTSBackend:
+    """
+    F5-TTS backend for Abogen.
+
+    F5-TTS is a diffusion-based TTS model that supports zero-shot voice cloning
+    from reference audio. Unlike Kokoro, it doesn't have built-in voices - instead,
+    you provide a short reference audio clip (5-10 seconds) and the model clones
+    that voice.
+
+    Features:
+        - High-quality, natural-sounding synthesis
+        - Zero-shot voice cloning from reference audio
+        - Multi-lingual support
+        - Controllable speed and prosody
+
+    Limitations:
+        - Requires GPU for reasonable speed (very slow on CPU)
+        - No built-in voice library (user must provide reference audio)
+        - Longer inference time than Kokoro
+        - Requires reference audio + transcript for each voice
+
+    Example:
+        >>> backend = F5TTSBackend(
+        ...     lang_code="a",
+        ...     device="cuda",
+        ...     reference_audio="my_voice.wav",
+        ...     reference_text="This is a sample of my voice."
+        ... )
+        >>> for result in backend("Hello world", voice="my_voice.wav", speed=1.0):
+        ...     process_audio(result.audio, result.sample_rate)
+    """
+
+    def __init__(
+        self,
+        lang_code: str,
+        device: str = "cpu",
+        model_name: str = "F5-TTS",
+        ckpt_file: str = "",
+        vocab_file: str = "",
+        reference_audio: Optional[str] = None,
+        reference_text: Optional[str] = None,
+        vocoder_name: str = "vocos",
+        target_rms: float = 0.1,
+        cross_fade_duration: float = 0.15,
+        nfe_step: int = 32,
+        cfg_strength: float = 2.0,
+        sway_sampling_coef: float = -1.0,
+        speed: float = 1.0,
+        fix_duration: Optional[float] = None,
+        **kwargs
+    ):
+        """
+        Initialize F5-TTS backend.
+
+        Args:
+            lang_code: Language code (currently mainly supports English)
+            device: Device to run on ("cpu", "cuda", "mps")
+            model_name: Model name ("F5-TTS" or "E2-TTS")
+            ckpt_file: Path to model checkpoint (empty string for auto-download)
+            vocab_file: Path to vocab file (empty string for auto-download)
+            reference_audio: Default reference audio file path
+            reference_text: Transcript of default reference audio
+            vocoder_name: Vocoder to use ("vocos" recommended)
+            target_rms: Target RMS for audio normalization
+            cross_fade_duration: Cross-fade duration between segments (seconds)
+            nfe_step: Number of function evaluations (32 is good balance)
+            cfg_strength: Classifier-free guidance strength
+            sway_sampling_coef: Sway sampling coefficient (-1 = disabled)
+            speed: Global speed multiplier
+            fix_duration: Fix duration for generated audio (None = auto)
+            **kwargs: Additional arguments (ignored)
+        """
+        self.lang_code = lang_code
+        self.device = device
+        self.model_name = model_name
+        self.reference_audio = reference_audio
+        self.reference_text = reference_text
+        self.vocoder_name = vocoder_name
+
+        # Synthesis parameters
+        self.target_rms = target_rms
+        self.cross_fade_duration = cross_fade_duration
+        self.nfe_step = nfe_step
+        self.cfg_strength = cfg_strength
+        self.sway_sampling_coef = sway_sampling_coef
+        self.default_speed = speed
+        self.fix_duration = fix_duration
+
+        logger.info(f"Initializing F5-TTS backend on {device}...")
+
+        # Import F5-TTS utilities
+        try:
+            from f5_tts.infer.utils_infer import (
+                load_model,
+                load_vocoder,
+                infer_process,
+                preprocess_ref_audio_text,
+            )
+            self._load_model_fn = load_model
+            self._load_vocoder_fn = load_vocoder
+            self._infer_process_fn = infer_process
+            self._preprocess_ref_audio_fn = preprocess_ref_audio_text
+        except ImportError as e:
+            raise ImportError(
+                "F5-TTS not installed. Install with:\n"
+                "  pip install f5-tts\n"
+                "Or from source:\n"
+                "  git clone https://github.com/SWivid/F5-TTS.git\n"
+                "  cd F5-TTS && pip install -e .\n"
+                f"Error: {e}"
+            )
+
+        # Load model and vocoder
+        try:
+            logger.info("Loading F5-TTS model (this may take a few moments)...")
+
+            # Load model with simplified API
+            self.ema_model = self._load_model_fn(
+                model_name,
+                ckpt_file=ckpt_file,
+                vocab_file=vocab_file,
+                device=device
+            )
+
+            logger.info("Loading vocoder...")
+            self.vocoder = self._load_vocoder_fn(
+                vocoder_name=vocoder_name,
+                device=device
+            )
+
+            logger.info("F5-TTS model and vocoder loaded successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to load F5-TTS model: {e}")
+            raise RuntimeError(
+                f"Failed to initialize F5-TTS. This could be due to:\n"
+                f"  - Missing model files (will auto-download on first run)\n"
+                f"  - Insufficient GPU memory (try device='cpu' or reduce batch size)\n"
+                f"  - Missing dependencies (ensure torch and torchaudio installed)\n"
+                f"Error: {e}"
+            )
+
+        # Preprocess default reference audio if provided
+        self.default_ref_audio = None
+        self.default_ref_text = None
+        if reference_audio and Path(reference_audio).exists():
+            logger.info(f"Preprocessing default reference audio: {reference_audio}")
+            self.default_ref_audio, self.default_ref_text = self._preprocess_ref_audio_fn(
+                reference_audio,
+                reference_text or "",
+                device=device
+            )
+
+    @staticmethod
+    def _check_dependencies():
+        """Check if F5-TTS is installed."""
+        import f5_tts
+
+    def __call__(
+        self,
+        text: str,
+        voice: str,
+        speed: float = 1.0,
+        split_pattern: Optional[str] = None,
+    ) -> Iterator[TTSResult]:
+        """
+        Synthesize text using F5-TTS.
+
+        For F5-TTS, the 'voice' parameter should be:
+        - Path to a reference audio file (.wav), OR
+        - Empty string to use the default reference audio from initialization
+
+        Args:
+            text: Input text to synthesize (can be long, will be chunked)
+            voice: Path to reference audio file, or "" for default
+            speed: Speech speed multiplier (1.0 = normal)
+            split_pattern: Regex pattern for splitting text (optional)
+
+        Yields:
+            TTSResult objects with audio segments
+
+        Raises:
+            ValueError: If no reference audio provided
+            RuntimeError: If synthesis fails
+        """
+        # Determine which reference audio to use
+        if voice and Path(voice).exists():
+            logger.info(f"Using custom reference audio: {voice}")
+            ref_audio, ref_text = self._preprocess_ref_audio_fn(
+                voice,
+                "",  # We don't require transcript for custom voices
+                device=self.device
+            )
+        elif self.default_ref_audio is not None:
+            logger.debug("Using default reference audio")
+            ref_audio = self.default_ref_audio
+            ref_text = self.default_ref_text
+        else:
+            raise ValueError(
+                "F5-TTS requires reference audio. Please provide:\n"
+                "  1. 'voice' parameter as path to reference audio file, OR\n"
+                "  2. 'reference_audio' in backend initialization\n"
+                "\n"
+                "Reference audio should be:\n"
+                "  - WAV format, 5-10 seconds long\n"
+                "  - Clear voice sample without background noise\n"
+                "  - Representative of desired voice characteristics"
+            )
+
+        # Split text into manageable chunks
+        chunks = self._split_text(text, split_pattern)
+
+        logger.info(
+            f"Synthesizing {len(chunks)} text chunks with F5-TTS "
+            f"(speed={speed:.2f})..."
+        )
+
+        total_chunks = len(chunks)
+        for i, chunk in enumerate(chunks, 1):
+            if not chunk.strip():
+                continue
+
+            logger.debug(f"Processing chunk {i}/{total_chunks}: {chunk[:50]}...")
+
+            try:
+                # Run F5-TTS inference
+                audio, sample_rate, spectrogram = self._infer_process_fn(
+                    ref_audio,
+                    ref_text,
+                    chunk,
+                    self.ema_model,
+                    self.vocoder,
+                    mel_spec_type=self.vocoder_name,
+                    target_rms=self.target_rms,
+                    cross_fade_duration=self.cross_fade_duration,
+                    nfe_step=self.nfe_step,
+                    cfg_strength=self.cfg_strength,
+                    sway_sampling_coef=self.sway_sampling_coef,
+                    speed=speed,
+                    fix_duration=self.fix_duration,
+                    device=self.device,
+                )
+
+                # Convert to numpy array if needed
+                if not isinstance(audio, np.ndarray):
+                    audio = np.array(audio)
+
+                # Ensure audio is 1D (mono)
+                if audio.ndim > 1:
+                    audio = audio.flatten()
+
+                yield TTSResult(
+                    audio=audio,
+                    sample_rate=sample_rate,
+                    graphemes=[],  # F5-TTS doesn't expose graphemes
+                    tokens=[],
+                )
+
+                logger.debug(
+                    f"  → Generated {len(audio)} samples @ {sample_rate}Hz "
+                    f"({len(audio)/sample_rate:.2f}s)"
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to synthesize chunk {i}: {e}")
+                raise RuntimeError(
+                    f"F5-TTS synthesis failed on chunk {i}/{total_chunks}:\n"
+                    f"  Text: {chunk[:100]}...\n"
+                    f"  Error: {e}"
+                )
+
+        logger.info("F5-TTS synthesis complete")
+
+    def _split_text(
+        self,
+        text: str,
+        split_pattern: Optional[str]
+    ) -> list[str]:
+        """
+        Split text into chunks for processing.
+
+        F5-TTS works best with chunks of ~100-200 words. This method splits
+        long texts intelligently to maintain sentence boundaries.
+
+        Args:
+            text: Input text to split
+            split_pattern: Optional regex pattern for custom splitting
+
+        Returns:
+            List of text chunks
+        """
+        if split_pattern:
+            # Use custom split pattern if provided
+            chunks = re.split(split_pattern, text)
+            return [c.strip() for c in chunks if c.strip()]
+
+        # Default: split on sentence boundaries with max ~200 words per chunk
+        # This helps maintain natural prosody and avoids memory issues
+
+        # First, split into sentences
+        sentence_pattern = r'(?<=[.!?])\s+'
+        sentences = re.split(sentence_pattern, text)
+
+        chunks = []
+        current_chunk = []
+        current_word_count = 0
+        max_words_per_chunk = 200
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+
+            # Count words in this sentence
+            words = sentence.split()
+            word_count = len(words)
+
+            # If adding this sentence exceeds limit and we have content, start new chunk
+            if current_word_count + word_count > max_words_per_chunk and current_chunk:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = [sentence]
+                current_word_count = word_count
+            else:
+                current_chunk.append(sentence)
+                current_word_count += word_count
+
+        # Add remaining content
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        logger.debug(f"Split text into {len(chunks)} chunks (max {max_words_per_chunk} words each)")
+        return chunks
+
+    @property
+    def supports_voice_mixing(self) -> bool:
+        """F5-TTS doesn't support Kokoro-style voice formula mixing."""
+        return False
+
+    @property
+    def available_voices(self) -> list[str]:
+        """
+        F5-TTS uses reference audio for voices, so there are no "built-in" voices.
+
+        Users must provide their own reference audio files. In the future, we
+        could bundle some high-quality reference voices with Abogen.
+
+        Returns:
+            Empty list (no built-in voices)
+        """
+        return []

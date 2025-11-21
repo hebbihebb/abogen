@@ -1,9 +1,22 @@
 import re
+import logging
 from abogen.constants import VOICES_INTERNAL
+
+logger = logging.getLogger(__name__)
 
 
 # Calls parsing and loads the voice to gpu or cpu
 def get_new_voice(pipeline, formula, use_gpu):
+    # Check if engine supports voice mixing
+    if not getattr(pipeline, 'supports_voice_mixing', False):
+        logger.warning(
+            f"Current TTS engine doesn't support voice mixing. "
+            f"Using first voice from formula: {formula}"
+        )
+        # Extract first voice name from formula (format: "voice_name*0.5 + ...")
+        first_voice = formula.split('+')[0].split('*')[0].strip()
+        return first_voice
+
     try:
         weighted_voice = parse_voice_formula(pipeline, formula)
         # device = "cuda" if use_gpu else "cpu"

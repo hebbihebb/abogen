@@ -184,6 +184,71 @@ With voice mixer, you can create custom voices by mixing different voice models.
 
 > Special thanks to [@jborza](https://github.com/jborza) for making this possible through his contributions in [#5](https://github.com/denizsafak/abogen/pull/5)
 
+## `TTS Engines`
+
+Abogen now supports multiple TTS (Text-to-Speech) engines, allowing you to choose the one that best fits your needs:
+
+### Kokoro-82M (Default)
+**Fast, local TTS with 58 built-in voices**
+- ✅ 58 pre-trained voices across 9 languages
+- ✅ Voice mixing/blending support
+- ✅ CPU-friendly (fast inference)
+- ✅ No additional setup required
+- ✅ Works offline (with `Disable Kokoro's internet access` setting)
+
+### F5-TTS
+**High-quality TTS with voice cloning**
+- ✅ Zero-shot voice cloning from reference audio
+- ✅ Very high-quality, natural-sounding synthesis
+- ✅ Multi-lingual support
+- ⚠️ Requires GPU for reasonable speed (very slow on CPU)
+- ⚠️ Requires reference audio (5-10 seconds of clear speech)
+- ⚠️ No built-in voice library
+
+#### Installing F5-TTS
+
+To use F5-TTS, install it with:
+```bash
+pip install f5-tts
+```
+
+Or from source for the latest version:
+```bash
+git clone https://github.com/SWivid/F5-TTS.git
+cd F5-TTS
+pip install -e .
+```
+
+#### Using F5-TTS
+
+1. Select **F5-TTS** from the "TTS Engine" dropdown in the Abogen UI
+2. Provide a reference audio file:
+   - 5-10 seconds of clear speech in WAV format
+   - Represents the voice you want to clone
+   - Can be specified via the voice selection field
+3. GPU acceleration is **highly recommended** - enable "Use GPU" option
+4. Start conversion as usual
+
+For testing F5-TTS:
+```bash
+# Test F5-TTS with a reference audio file
+python scripts/test_f5_tts_backend.py --ref-audio path/to/voice.wav --device cuda
+
+# Test on CPU (slow!)
+python scripts/test_f5_tts_backend.py --ref-audio path/to/voice.wav --device cpu
+```
+
+#### Performance Comparison
+
+| Engine | Speed (RTX 2070) | Quality | Voice Options | GPU Required |
+|--------|------------------|---------|---------------|--------------|
+| Kokoro-82M | ⚡ Very Fast | ⭐⭐⭐⭐ Good | 58 built-in | No |
+| F5-TTS | 🐌 Moderate | ⭐⭐⭐⭐⭐ Excellent | Unlimited (cloning) | Yes* |
+
+*F5-TTS technically works on CPU but is extremely slow (10-20x slower than GPU)
+
+See [docs/tts_engines.md](docs/tts_engines.md) for detailed comparison and usage guide.
+
 ## `Queue Mode`
 <img title="Abogen queue mode" src='https://raw.githubusercontent.com/denizsafak/abogen/refs/heads/main/demo/queue.png'>
 
