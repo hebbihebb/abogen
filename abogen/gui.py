@@ -1727,7 +1727,7 @@ class abogen(QWidget):
             )
 
         # Show info message if engine requires GPU
-        if engine_cfg.get("requires_gpu", False) and not self.use_gpu_checkbox.isChecked():
+        if engine_cfg.get("requires_gpu", False) and not self.gpu_checkbox.isChecked():
             QMessageBox.information(
                 self,
                 "GPU Recommended",

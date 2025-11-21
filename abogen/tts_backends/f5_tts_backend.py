@@ -105,18 +105,9 @@ class F5TTSBackend:
 
         logger.info(f"Initializing F5-TTS backend on {device}...")
 
-        # Import F5-TTS utilities
+        # Import F5-TTS API
         try:
-            from f5_tts.infer.utils_infer import (
-                load_model,
-                load_vocoder,
-                infer_process,
-                preprocess_ref_audio_text,
-            )
-            self._load_model_fn = load_model
-            self._load_vocoder_fn = load_vocoder
-            self._infer_process_fn = infer_process
-            self._preprocess_ref_audio_fn = preprocess_ref_audio_text
+            from f5_tts.api import F5TTS
         except ImportError as e:
             raise ImportError(
                 "F5-TTS not installed. Install with:\n"
@@ -127,25 +118,27 @@ class F5TTSBackend:
                 f"Error: {e}"
             )
 
-        # Load model and vocoder
+        # Map model names to F5-TTS API model names
+        model_name_mapping = {
+            "F5-TTS": "F5TTS_v1_Base",
+            "E2-TTS": "E2TTS_Base",
+        }
+        api_model_name = model_name_mapping.get(model_name, model_name)
+
+        # Load F5-TTS model using high-level API
         try:
             logger.info("Loading F5-TTS model (this may take a few moments)...")
 
-            # Load model with simplified API
-            self.ema_model = self._load_model_fn(
-                model_name,
+            self.f5tts = F5TTS(
+                model=api_model_name,
                 ckpt_file=ckpt_file,
                 vocab_file=vocab_file,
-                device=device
+                ode_method="euler",
+                use_ema=True,
+                device=device,
             )
 
-            logger.info("Loading vocoder...")
-            self.vocoder = self._load_vocoder_fn(
-                vocoder_name=vocoder_name,
-                device=device
-            )
-
-            logger.info("F5-TTS model and vocoder loaded successfully")
+            logger.info("F5-TTS model loaded successfully")
 
         except Exception as e:
             logger.error(f"Failed to load F5-TTS model: {e}")
@@ -157,16 +150,9 @@ class F5TTSBackend:
                 f"Error: {e}"
             )
 
-        # Preprocess default reference audio if provided
-        self.default_ref_audio = None
-        self.default_ref_text = None
-        if reference_audio and Path(reference_audio).exists():
-            logger.info(f"Preprocessing default reference audio: {reference_audio}")
-            self.default_ref_audio, self.default_ref_text = self._preprocess_ref_audio_fn(
-                reference_audio,
-                reference_text or "",
-                device=device
-            )
+        # Store default reference audio path
+        self.default_ref_audio_path = reference_audio
+        self.default_ref_text = reference_text or ""
 
     @staticmethod
     def _check_dependencies():
@@ -203,14 +189,11 @@ class F5TTSBackend:
         # Determine which reference audio to use
         if voice and Path(voice).exists():
             logger.info(f"Using custom reference audio: {voice}")
-            ref_audio, ref_text = self._preprocess_ref_audio_fn(
-                voice,
-                "",  # We don't require transcript for custom voices
-                device=self.device
-            )
-        elif self.default_ref_audio is not None:
+            ref_audio_path = voice
+            ref_text = ""  # Transcript is optional with new API
+        elif self.default_ref_audio_path and Path(self.default_ref_audio_path).exists():
             logger.debug("Using default reference audio")
-            ref_audio = self.default_ref_audio
+            ref_audio_path = self.default_ref_audio_path
             ref_text = self.default_ref_text
         else:
             raise ValueError(
@@ -240,14 +223,13 @@ class F5TTSBackend:
             logger.debug(f"Processing chunk {i}/{total_chunks}: {chunk[:50]}...")
 
             try:
-                # Run F5-TTS inference
-                audio, sample_rate, spectrogram = self._infer_process_fn(
-                    ref_audio,
-                    ref_text,
-                    chunk,
-                    self.ema_model,
-                    self.vocoder,
-                    mel_spec_type=self.vocoder_name,
+                # Run F5-TTS inference using high-level API
+                audio, sample_rate, spectrogram = self.f5tts.infer(
+                    ref_file=ref_audio_path,
+                    ref_text=ref_text,
+                    gen_text=chunk,
+                    show_info=lambda x: None,  # Suppress F5-TTS logging
+                    progress=None,  # Disable progress bar
                     target_rms=self.target_rms,
                     cross_fade_duration=self.cross_fade_duration,
                     nfe_step=self.nfe_step,
@@ -255,7 +237,8 @@ class F5TTSBackend:
                     sway_sampling_coef=self.sway_sampling_coef,
                     speed=speed,
                     fix_duration=self.fix_duration,
-                    device=self.device,
+                    remove_silence=False,
+                    seed=None,  # Random seed for each chunk
                 )
 
                 # Convert to numpy array if needed
