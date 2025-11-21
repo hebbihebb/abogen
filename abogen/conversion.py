@@ -1384,10 +1384,18 @@ class ConversionThread(QThread):
                     current_segment += 1
                     grapheme_len = len(result.graphemes)
                     self.processed_char_count += grapheme_len
-                    # Log progress with both character counts and the graphemes content
-                    self.log_updated.emit(
-                        f"\n{self.processed_char_count:,}/{self.total_char_count:,}: {result.graphemes}"
-                    )
+                    # Log progress - show graphemes only if short (phonemes), otherwise show summary
+                    if grapheme_len > 50:
+                        # For long text chunks (F5-TTS), show summary instead of full list
+                        grapheme_preview = ''.join(result.graphemes[:30]) + '...'
+                        self.log_updated.emit(
+                            f"\n{self.processed_char_count:,}/{self.total_char_count:,}: [{grapheme_len} chars] {grapheme_preview}"
+                        )
+                    else:
+                        # For short phoneme lists (Kokoro), show full list
+                        self.log_updated.emit(
+                            f"\n{self.processed_char_count:,}/{self.total_char_count:,}: {result.graphemes}"
+                        )
 
                     chunk_dur = len(result.audio) / rate
                     chunk_start = current_time
