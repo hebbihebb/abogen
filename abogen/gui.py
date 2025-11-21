@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QDialog,
     QCheckBox,
+    QLineEdit,
     QMenu,
 )
 from PyQt6.QtGui import QAction, QActionGroup
