@@ -2526,3 +2526,57 @@ class HandlerDialog(QDialog):
             except Exception:
                 pass
         event.accept()
+
+def extract_pdf_pages(file_path):
+    """Extract text from PDF pages."""
+    try:
+        doc = fitz.open(file_path)
+        pages = []
+        for page in doc:
+            text = clean_text(page.get_text())
+            # Basic cleaning similar to HandlerDialog
+            text = re.sub(r"\[\s*\d+\s*\]", "", text)
+            text = re.sub(r"^\s*\d+\s*$", "", text, flags=re.MULTILINE)
+            text = re.sub(r"\s+\d+\s*$", "", text, flags=re.MULTILINE)
+            pages.append(text)
+        return pages
+    except Exception as e:
+        logging.error(f"Error extracting PDF pages: {e}")
+        return []
+
+def extract_epub_chapters(file_path):
+    """Extract chapters from EPUB file."""
+    try:
+        book = epub.read_epub(file_path)
+        chapters = []
+        
+        # Simple spine-based extraction for reliability
+        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            try:
+                content = item.get_content().decode("utf-8", errors="ignore")
+                soup = BeautifulSoup(content, "html.parser")
+                
+                # Try to get title
+                title = None
+                if soup.title and soup.title.string:
+                    title = soup.title.string.strip()
+                elif (h1 := soup.find("h1")) and h1.get_text(strip=True):
+                    title = h1.get_text(strip=True)
+                
+                if not title:
+                    title = item.get_name()
+                
+                text = clean_text(soup.get_text()).strip()
+                if text:
+                    chapters.append({
+                        "title": title,
+                        "text": text
+                    })
+            except Exception as e:
+                logging.warning(f"Error processing EPUB item {item.get_name()}: {e}")
+                continue
+                
+        return chapters
+    except Exception as e:
+        logging.error(f"Error extracting EPUB chapters: {e}")
+        return []
