@@ -1384,10 +1384,13 @@ class ConversionThread(QThread):
                     current_segment += 1
                     grapheme_len = len(result.graphemes)
                     self.processed_char_count += grapheme_len
-                    # Log progress - show graphemes only if short (phonemes), otherwise show summary
-                    if grapheme_len > 50:
-                        # For long text chunks (F5-TTS), show summary instead of full list
-                        grapheme_preview = ''.join(result.graphemes[:30]) + '...'
+                    # Log progress - show preview for text, detailed list for phonemes
+                    if grapheme_len > 15:
+                        # For text chunks (F5-TTS), show summary
+                        preview_len = min(30, grapheme_len)
+                        grapheme_preview = ''.join(result.graphemes[:preview_len])
+                        if grapheme_len > preview_len:
+                            grapheme_preview += '...'
                         self.log_updated.emit(
                             f"\n{self.processed_char_count:,}/{self.total_char_count:,}: [{grapheme_len} chars] {grapheme_preview}"
                         )
