@@ -106,6 +106,8 @@ pip3 install --pre torch torchvision torchaudio --index-url https://download.pyt
 > Special thanks to [@hg000125](https://github.com/hg000125) for his contribution in [#23](https://github.com/denizsafak/abogen/issues/23). AMD GPU support is possible thanks to his work.
 
 ## `How to run?`
+
+### Desktop GUI
 If you installed using pip, you can simply run the following command to start Abogen:
 
 ```bash
@@ -113,6 +115,31 @@ abogen
 ```
 > [!TIP]
 > If you installed Abogen using the Windows installer `(WINDOWS_INSTALL.bat)`, It should have created a shortcut in the same folder, or your desktop. You can run it from there. If you lost the shortcut, Abogen is located in `python_embedded/Scripts/abogen.exe`. You can run it from there directly.
+
+### Web UI 🌐 NEW!
+Access all Abogen features through a modern web interface:
+
+```bash
+# Install web UI dependencies
+cd webui/backend && pip install -r requirements.txt
+cd ../frontend && npm install
+
+# Start the web UI (opens at http://localhost:5173)
+cd .. && ./start.sh  # Linux/Mac
+# or
+start.bat  # Windows
+```
+
+The web UI provides:
+- ✨ Modern, responsive design with white, gray, and blue colors
+- 📁 Drag-and-drop file upload
+- 🎤 All 58+ voices and voice mixer
+- ⚡ Real-time processing logs
+- 📊 Live progress tracking
+- 🎯 Chapter/page selection
+- 📱 Mobile-friendly interface
+
+See [webui/README.md](webui/README.md) for detailed documentation.
 
 ## `How to use?`
 1) Drag and drop any ePub, PDF, text, markdown, or subtitle file (or use the built-in text editor)
