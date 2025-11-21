@@ -29,6 +29,48 @@ LANGUAGE_DESCRIPTIONS = {
     "z": "Mandarin Chinese",
 }
 
+# TTS Engine Configurations
+ENGINE_CONFIGS = {
+    "kokoro": {
+        "display_name": "Kokoro-82M",
+        "description": "Fast local TTS with 58 built-in voices, multi-language support",
+        "requires_gpu": False,
+        "supports_voice_mixing": True,
+        "default_params": {
+            "repo_id": "hexgrad/Kokoro-82M",
+        },
+        "features": [
+            "58 pre-trained voices",
+            "Voice formula mixing",
+            "CPU-friendly",
+            "Fast inference",
+        ],
+    },
+    "f5_tts": {
+        "display_name": "F5-TTS",
+        "description": "High-quality TTS with voice cloning from reference audio",
+        "requires_gpu": True,
+        "supports_voice_mixing": False,
+        "default_params": {
+            "model_name": "F5-TTS",
+            "ckpt_file": "",
+            "vocab_file": "",
+            "reference_audio": None,
+            "reference_text": None,
+            "vocoder_name": "vocos",
+            "nfe_step": 32,
+        },
+        "features": [
+            "Zero-shot voice cloning",
+            "High-quality synthesis",
+            "Multi-lingual",
+            "Requires reference audio",
+        ],
+    },
+}
+
+DEFAULT_ENGINE = "kokoro"
+
 # Supported sound formats
 SUPPORTED_SOUND_FORMATS = [
     "wav",

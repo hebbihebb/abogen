@@ -625,11 +625,15 @@ class ConversionThread(QThread):
         use_gpu=True,
         from_queue=False,
         save_base_path=None,
+        engine_name=None,  # NEW: TTS engine to use
+        engine_config=None,  # NEW: Engine-specific configuration
     ):  # Add use_gpu parameter
         super().__init__()
         self._chapter_options_event = threading.Event()
         self.np = np_module
-        self.KPipeline = kpipeline_class
+        self.KPipeline = kpipeline_class  # Keep for backward compatibility
+        self.engine_name = engine_name  # NEW: Store engine selection
+        self.engine_config = engine_config or {}  # NEW: Store engine config
         self.file_name = file_name
         self.lang_code = lang_code
         self.speed = speed
@@ -828,9 +832,37 @@ class ConversionThread(QThread):
             else:
                 device = "cpu"
 
-            tts = self.KPipeline(
-                lang_code=self.lang_code, repo_id="hexgrad/Kokoro-82M", device=device
-            )
+            # NEW: Use backend abstraction if engine specified, otherwise use legacy Kokoro
+            if self.engine_name:
+                from abogen.tts_backends import create_tts_engine
+                from abogen.constants import ENGINE_CONFIGS, DEFAULT_ENGINE
+
+                # Get engine name or use default
+                engine_name = self.engine_name or DEFAULT_ENGINE
+
+                self.log_updated.emit(f"Loading {ENGINE_CONFIGS[engine_name]['display_name']} engine...")
+
+                # Merge default params with user config
+                engine_params = ENGINE_CONFIGS[engine_name]['default_params'].copy()
+                engine_params.update(self.engine_config)
+
+                try:
+                    tts = create_tts_engine(
+                        engine_name=engine_name,
+                        lang_code=self.lang_code,
+                        device=device,
+                        **engine_params
+                    )
+                    self.log_updated.emit(f"✓ {ENGINE_CONFIGS[engine_name]['display_name']} loaded successfully")
+                except Exception as e:
+                    self.log_updated.emit(f"✗ Failed to load {engine_name} engine: {e}")
+                    self.conversion_finished.emit(f"Error: {e}", None)
+                    return
+            else:
+                # Legacy mode: use KPipeline directly for backward compatibility
+                tts = self.KPipeline(
+                    lang_code=self.lang_code, repo_id="hexgrad/Kokoro-82M", device=device
+                )
 
             # Check if the input is a subtitle file or timestamp text file
             is_subtitle_file = False

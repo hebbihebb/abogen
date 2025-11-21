@@ -875,6 +875,15 @@ class abogen(QWidget):
                 else:
                     self.mixed_voice_state = entry
                     self.selected_lang = entry[0][0] if entry and entry[0] else None
+
+        # Restore selected engine from config
+        if hasattr(self, 'engine_combo'):
+            selected_engine = self.config.get("selected_engine")
+            if selected_engine:
+                engine_idx = self.engine_combo.findData(selected_engine)
+                if engine_idx >= 0:
+                    self.engine_combo.setCurrentIndex(engine_idx)
+
         if self.save_option == "Choose output folder" and self.selected_output_folder:
             self.save_path_label.setText(self.selected_output_folder)
             self.save_path_row_widget.show()
@@ -964,6 +973,45 @@ class abogen(QWidget):
         speed_layout.addWidget(self.speed_label)
         controls_layout.addLayout(speed_layout)
         self.speed_slider.valueChanged.connect(self.update_speed_label)
+
+        # TTS Engine selection
+        engine_layout = QHBoxLayout()
+        engine_layout.setSpacing(7)
+        engine_label = QLabel("TTS Engine:", self)
+        engine_layout.addWidget(engine_label)
+        self.engine_combo = QComboBox(self)
+        self.engine_combo.setStyleSheet(
+            "QComboBox { min-height: 20px; padding: 6px 12px; }"
+        )
+        self.engine_combo.setToolTip(
+            "Select TTS engine:\n"
+            "Kokoro-82M: Fast, 58 built-in voices, CPU-friendly\n"
+            "F5-TTS: High-quality, voice cloning, requires GPU"
+        )
+        self.engine_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        # Populate engine dropdown with available engines
+        from abogen.tts_backends import get_available_engines
+        from abogen.constants import ENGINE_CONFIGS, DEFAULT_ENGINE
+        self.available_engines = get_available_engines()
+        for engine_name in ENGINE_CONFIGS.keys():
+            engine_cfg = ENGINE_CONFIGS[engine_name]
+            display_name = engine_cfg['display_name']
+            if engine_name in self.available_engines:
+                self.engine_combo.addItem(display_name, engine_name)
+            else:
+                # Show unavailable engines as disabled
+                self.engine_combo.addItem(f"{display_name} (not installed)", engine_name)
+                self.engine_combo.model().item(self.engine_combo.count() - 1).setEnabled(False)
+        # Set default engine
+        default_idx = self.engine_combo.findData(DEFAULT_ENGINE)
+        if default_idx >= 0:
+            self.engine_combo.setCurrentIndex(default_idx)
+        self.engine_combo.currentIndexChanged.connect(self.on_engine_changed)
+        engine_layout.addWidget(self.engine_combo)
+        controls_layout.addLayout(engine_layout)
+
         # Voice selection
         voice_layout = QHBoxLayout()
         voice_layout.setSpacing(7)
@@ -1646,6 +1694,47 @@ class abogen(QWidget):
                 self.subtitle_combo.setEnabled(False)
                 self.subtitle_format_combo.setEnabled(False)
 
+    def on_engine_changed(self, index):
+        """Handle TTS engine selection changes."""
+        engine_name = self.engine_combo.itemData(index)
+        if not engine_name:
+            return
+
+        # Store selected engine in config
+        from abogen.constants import ENGINE_CONFIGS
+        self.config["selected_engine"] = engine_name
+        save_config(self.config)
+
+        # Update UI based on engine capabilities
+        engine_cfg = ENGINE_CONFIGS.get(engine_name, {})
+
+        # Show/hide voice mixing button based on engine support
+        supports_mixing = engine_cfg.get("supports_voice_mixing", False)
+        self.btn_voice_formula_mixer.setVisible(supports_mixing)
+
+        # Update voice combo tooltip based on engine
+        if engine_name == "f5_tts":
+            self.voice_combo.setToolTip(
+                "F5-TTS uses reference audio for voice cloning.\n"
+                "You can provide a reference audio file (.wav) as voice.\n"
+                "The reference should be 5-10 seconds of clear speech."
+            )
+        else:
+            # Restore default Kokoro tooltip
+            self.voice_combo.setToolTip(
+                "The first character represents the language:\n"
+                '"a" => American English\n"b" => British English\n"e" => Spanish\n"f" => French\n"h" => Hindi\n"i" => Italian\n"j" => Japanese\n"p" => Brazilian Portuguese\n"z" => Mandarin Chinese\nThe second character represents the gender:\n"m" => Male\n"f" => Female'
+            )
+
+        # Show info message if engine requires GPU
+        if engine_cfg.get("requires_gpu", False) and not self.use_gpu_checkbox.isChecked():
+            QMessageBox.information(
+                self,
+                "GPU Recommended",
+                f"{engine_cfg['display_name']} works best with GPU acceleration.\n\n"
+                "Consider enabling 'Use GPU' option for better performance."
+            )
+
     def update_subtitle_combo_for_profile(self, profile_name):
         from abogen.voice_profiles import load_profiles
 
@@ -2058,6 +2147,10 @@ class abogen(QWidget):
             # determine selected language: use profile setting if profile selected, else voice code
             selected_lang = self.get_selected_lang(voice_formula)
 
+            # Get selected engine and config
+            selected_engine = self.engine_combo.currentData() if hasattr(self, 'engine_combo') else None
+            engine_config = self.config.get("engine_config", {})
+
             self.conversion_thread = ConversionThread(
                 self.selected_file,
                 selected_lang,
@@ -2074,6 +2167,8 @@ class abogen(QWidget):
                 use_gpu=self.gpu_ok,
                 from_queue=from_queue,
                 save_base_path=self.displayed_file_path,  # Pass the save base path (original file for EPUB)
+                engine_name=selected_engine,  # NEW: Pass selected engine
+                engine_config=engine_config,  # NEW: Pass engine configuration
             )  # Use gpu_ok status
             # Pass the displayed file path to the log_updated signal handler in ConversionThread
             self.conversion_thread.display_path = display_path
