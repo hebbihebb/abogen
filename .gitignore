@@ -33,3 +33,10 @@ python_embedded/
 build/
 dist/
 .old/
+out/
+
+# Claude Code
+.claude/
+
+# Temporary files
+nul
