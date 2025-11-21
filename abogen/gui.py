@@ -1040,6 +1040,28 @@ class abogen(QWidget):
         self.btn_voice_formula_mixer.clicked.connect(self.show_voice_formula_dialog)
         voice_layout.addWidget(self.btn_voice_formula_mixer)
 
+        # F5-TTS Reference Audio (hidden by default)
+        self.f5_ref_audio_layout = QHBoxLayout()
+        self.f5_ref_audio_layout.setSpacing(7)
+        self.f5_ref_audio_label = QLabel("Reference audio:", self)
+        self.f5_ref_audio_layout.addWidget(self.f5_ref_audio_label)
+        self.f5_ref_audio_input = QLineEdit(self)
+        self.f5_ref_audio_input.setPlaceholderText("Path to reference audio file (.wav, 5-10 seconds)")
+        self.f5_ref_audio_input.setToolTip(
+            "Path to reference audio file for voice cloning.\n"
+            "Should be a WAV file, 5-10 seconds long, with clear speech."
+        )
+        self.f5_ref_audio_layout.addWidget(self.f5_ref_audio_input)
+        self.f5_ref_audio_browse_btn = QPushButton("Browse...", self)
+        self.f5_ref_audio_browse_btn.clicked.connect(self.browse_f5_reference_audio)
+        self.f5_ref_audio_browse_btn.setFixedWidth(80)
+        self.f5_ref_audio_layout.addWidget(self.f5_ref_audio_browse_btn)
+
+        # Hide F5-TTS elements by default
+        self.f5_ref_audio_label.setVisible(False)
+        self.f5_ref_audio_input.setVisible(False)
+        self.f5_ref_audio_browse_btn.setVisible(False)
+
         # Play/Stop icons
         def make_icon(color, shape):
             pix = QPixmap(20, 20)
@@ -1073,6 +1095,7 @@ class abogen(QWidget):
         self.preview_playing = False
         self.play_audio_thread = None  # Keep track of audio playing thread
         controls_layout.addLayout(voice_layout)
+        controls_layout.addLayout(self.f5_ref_audio_layout)
 
         # Generate subtitles
         subtitle_layout = QHBoxLayout()
@@ -1694,6 +1717,17 @@ class abogen(QWidget):
                 self.subtitle_combo.setEnabled(False)
                 self.subtitle_format_combo.setEnabled(False)
 
+    def browse_f5_reference_audio(self):
+        """Open file dialog to select F5-TTS reference audio."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Reference Audio",
+            "",
+            "Audio Files (*.wav *.WAV);;All Files (*.*)"
+        )
+        if file_path:
+            self.f5_ref_audio_input.setText(file_path)
+
     def on_engine_changed(self, index):
         """Handle TTS engine selection changes."""
         engine_name = self.engine_combo.itemData(index)
@@ -1707,10 +1741,17 @@ class abogen(QWidget):
 
         # Update UI based on engine capabilities
         engine_cfg = ENGINE_CONFIGS.get(engine_name, {})
-
-        # Show/hide voice mixing button based on engine support
         supports_mixing = engine_cfg.get("supports_voice_mixing", False)
-        self.btn_voice_formula_mixer.setVisible(supports_mixing)
+
+        # Show/hide F5-TTS reference audio UI based on engine
+        is_f5tts = engine_name == "f5_tts"
+        self.f5_ref_audio_label.setVisible(is_f5tts)
+        self.f5_ref_audio_input.setVisible(is_f5tts)
+        self.f5_ref_audio_browse_btn.setVisible(is_f5tts)
+
+        # Hide voice combo and voice mixer for F5-TTS (reference audio is used instead)
+        self.voice_combo.setVisible(not is_f5tts)
+        self.btn_voice_formula_mixer.setVisible(not is_f5tts and supports_mixing)
 
         # Update voice combo tooltip based on engine
         if engine_name == "f5_tts":
@@ -2049,6 +2090,10 @@ class abogen(QWidget):
             self.current_queue_index = 0  # Reset for next time
 
     def get_voice_formula(self) -> str:
+        # For F5-TTS, return the reference audio path
+        if self.engine_combo.currentData() == "f5_tts":
+            return self.f5_ref_audio_input.text().strip()
+
         if self.mixed_voice_state:
             formula_components = [
                 f"{name}*{weight}" for name, weight in self.mixed_voice_state
