@@ -129,14 +129,21 @@ class F5TTSBackend:
         try:
             logger.info("Loading F5-TTS model (this may take a few moments)...")
 
-            self.f5tts = F5TTS(
-                model=api_model_name,
-                ckpt_file=ckpt_file,
-                vocab_file=vocab_file,
-                ode_method="euler",
-                use_ema=True,
-                device=device,
-            )
+            # Suppress download messages during model loading
+            import sys
+            import os
+            from contextlib import redirect_stdout, redirect_stderr
+
+            with open(os.devnull, 'w') as devnull:
+                with redirect_stdout(devnull), redirect_stderr(devnull):
+                    self.f5tts = F5TTS(
+                        model=api_model_name,
+                        ckpt_file=ckpt_file,
+                        vocab_file=vocab_file,
+                        ode_method="euler",
+                        use_ema=True,
+                        device=device,
+                    )
 
             logger.info("F5-TTS model loaded successfully")
 
@@ -223,23 +230,31 @@ class F5TTSBackend:
             logger.debug(f"Processing chunk {i}/{total_chunks}: {chunk[:50]}...")
 
             try:
-                # Run F5-TTS inference using high-level API
-                audio, sample_rate, spectrogram = self.f5tts.infer(
-                    ref_file=ref_audio_path,
-                    ref_text=ref_text,
-                    gen_text=chunk,
-                    show_info=lambda x: None,  # Suppress F5-TTS logging
-                    progress=None,  # Disable progress bar
-                    target_rms=self.target_rms,
-                    cross_fade_duration=self.cross_fade_duration,
-                    nfe_step=self.nfe_step,
-                    cfg_strength=self.cfg_strength,
-                    sway_sampling_coef=self.sway_sampling_coef,
-                    speed=speed,
-                    fix_duration=self.fix_duration,
-                    remove_silence=False,
-                    seed=None,  # Random seed for each chunk
-                )
+                # Suppress F5-TTS stdout/stderr during inference
+                import sys
+                import os
+                from contextlib import redirect_stdout, redirect_stderr
+
+                # Redirect stdout and stderr to devnull to suppress F5-TTS internal messages
+                with open(os.devnull, 'w') as devnull:
+                    with redirect_stdout(devnull), redirect_stderr(devnull):
+                        # Run F5-TTS inference using high-level API
+                        audio, sample_rate, spectrogram = self.f5tts.infer(
+                            ref_file=ref_audio_path,
+                            ref_text=ref_text,
+                            gen_text=chunk,
+                            show_info=lambda x: None,  # Suppress F5-TTS logging
+                            progress=None,  # Disable progress bar
+                            target_rms=self.target_rms,
+                            cross_fade_duration=self.cross_fade_duration,
+                            nfe_step=self.nfe_step,
+                            cfg_strength=self.cfg_strength,
+                            sway_sampling_coef=self.sway_sampling_coef,
+                            speed=speed,
+                            fix_duration=self.fix_duration,
+                            remove_silence=False,
+                            seed=None,  # Random seed for each chunk
+                        )
 
                 # Convert to numpy array if needed
                 if not isinstance(audio, np.ndarray):
@@ -249,10 +264,14 @@ class F5TTSBackend:
                 if audio.ndim > 1:
                     audio = audio.flatten()
 
+                # Use chunk characters as graphemes for progress tracking
+                # This allows the GUI to track progress based on text length
+                graphemes = list(chunk)
+
                 yield TTSResult(
                     audio=audio,
                     sample_rate=sample_rate,
-                    graphemes=[],  # F5-TTS doesn't expose graphemes
+                    graphemes=graphemes,
                     tokens=[],
                 )
 
