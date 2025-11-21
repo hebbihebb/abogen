@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { X, Save } from 'lucide-react';
 import useStore from '../store';
 
+// Dynamically determine API URL based on current host
+const API_URL = `http://${window.location.hostname}:8000`;
+
 const VoiceMixer = () => {
   const {
     showVoiceMixer,
@@ -65,7 +68,7 @@ const VoiceMixer = () => {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/api/voice-profiles', {
+      const response = await fetch(`${API_URL}/api/voice-profiles`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({

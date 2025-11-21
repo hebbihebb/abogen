@@ -245,8 +245,8 @@ const TTSControls = () => {
         <input
           type="checkbox"
           id="use-gpu"
-          checked={config.useGpu}
-          onChange={(e) => updateConfig({ useGpu: e.target.checked })}
+          checked={config.use_gpu}
+          onChange={(e) => updateConfig({ use_gpu: e.target.checked })}
           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
         />
         <label htmlFor="use-gpu" className="ml-2 text-sm text-gray-700">

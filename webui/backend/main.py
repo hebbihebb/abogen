@@ -220,8 +220,13 @@ async def get_voices(engine: str):
 async def get_voice_profiles():
     """Get saved voice profiles"""
     try:
-        profiles = voice_profiles.load_profiles()
-        return {"profiles": profiles}
+        profiles_dict = voice_profiles.load_profiles()
+        # Convert dict to array of objects for frontend
+        profiles_array = [
+            {"name": name, "formula": formula}
+            for name, formula in profiles_dict.items()
+        ]
+        return {"profiles": profiles_array}
     except Exception as e:
         logger.error(f"Error getting voice profiles: {e}")
         raise HTTPException(status_code=500, detail=str(e))
