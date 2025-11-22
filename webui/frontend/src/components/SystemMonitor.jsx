@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Cpu, Zap } from 'lucide-react';
+import { Cpu, Zap, HardDrive } from 'lucide-react';
 
 export default function SystemMonitor() {
     const [cpuUsage, setCpuUsage] = useState(0);
@@ -41,6 +41,19 @@ export default function SystemMonitor() {
                         />
                     </div>
                     <span className="text-gray-700 w-10 text-right">{Math.round(cpuUsage)}%</span>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+                <HardDrive className="h-4 w-4 text-gray-600" />
+                <div className="flex items-center gap-2">
+                    <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-orange-500 transition-all duration-300"
+                            style={{ width: `${memUsage}%` }}
+                        />
+                    </div>
+                    <span className="text-gray-700 w-10 text-right">{Math.round(memUsage)}%</span>
                 </div>
             </div>
 
