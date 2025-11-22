@@ -1,4 +1,4 @@
-# Abogen Fork - WebUI + T5-TTS Edition
+# Abogen Fork - WebUI + F5-TTS Edition
 
 > ⚠️ **This is a personal fork** of the original [Abogen](https://github.com/denizsafak/abogen) project by [denizsafak](https://github.com/denizsafak). This is **not** the official project - it's a modified version adding a modern web interface and additional TTS engine support for personal use and fun.
 >
@@ -15,7 +15,7 @@ A responsive web interface to use Abogen remotely - run the backend on a server 
 
 **Features:**
 - 📁 Drag-and-drop file upload
-- 🎤 Multiple TTS engines (Kokoro, F5-TTS, T5-TTS)
+- 🎤 Multiple TTS engines (Kokoro-82M, F5-TTS)
 - ⚡ Real-time processing logs via WebSocket
 - 📊 Live system monitoring (CPU, RAM, GPU)
 - 🎯 Chapter/page selection
@@ -25,8 +25,7 @@ A responsive web interface to use Abogen remotely - run the backend on a server 
 
 ### 🔊 Additional TTS Engine Support
 In addition to the default **Kokoro-82M**, this fork supports:
-- **F5-TTS** - High-quality voice cloning from reference audio
-- **T5-TTS** - Additional TTS engine option (experimental)
+- **F5-TTS** - High-quality voice cloning and TTS synthesis from reference audio (fully tested and working)
 
 ## Quick Start - WebUI
 
@@ -73,16 +72,22 @@ pynvml>=12.0.0
 
 - **WebUI**: Full web interface with all major TTS features
 - **Kokoro-82M**: Default TTS engine with 58 voices (stable)
-- **F5-TTS**: High-quality voice cloning (stable)
+- **F5-TTS**: High-quality voice cloning and TTS synthesis (tested and working in both Qt GUI and WebUI)
 - **File Upload**: EPUB, PDF, TXT, MD, SRT, VTT support
 - **Processing**: Real-time logs and progress tracking
 - **Voice Profiles**: Save and load custom voice settings
 - **Subtitles**: Multiple generation formats
 - **System Monitor**: Live CPU, RAM, GPU metrics
 
-## What Probably Doesn't Work ⚠️
+## Tested Features ✅
 
-- **T5-TTS**: Listed in engine selection but may require additional setup/testing
+Both the original Abogen Qt GUI and the new WebUI have been tested with:
+- Kokoro-82M TTS synthesis
+- F5-TTS voice cloning
+- F5-TTS TTS synthesis
+
+## What Might Not Work ⚠️
+
 - **Some edge cases** in WebUI-specific features
 - **Desktop GUI**: Original Abogen desktop application isn't modified
 
@@ -92,7 +97,7 @@ pynvml>=12.0.0
 
 ### Why Use This Fork?
 - Want to run Abogen on a server and access it from other machines? ✅ This fork has the WebUI
-- Want to try T5-TTS alongside Kokoro? ✅ This fork supports it
+- Want to try F5-TTS voice cloning alongside Kokoro? ✅ This fork supports it (tested and working)
 - Want the official, full-featured Abogen? ✅ Use the [original project](https://github.com/denizsafak/abogen)
 
 ### Original Installation & Features
