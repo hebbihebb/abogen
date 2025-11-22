@@ -463,6 +463,50 @@ async def get_job_status(job_id: str):
     return job
 
 
+@app.get("/api/conversion-status")
+async def get_conversion_status():
+    """
+    Get current conversion status from WebUI and desktop app.
+    Returns information about active conversions from either source.
+    """
+    # Check for active WebUI conversions
+    for job_id, job in job_manager.jobs.items():
+        if job["status"] == "processing":
+            return {
+                "active": True,
+                "source": "webui",
+                "job_id": job_id,
+                "progress": job.get("progress", 0),
+                "current_file": job.get("config", {}).get("file_path", "Unknown"),
+            }
+
+    # Check for active desktop app conversion
+    # Desktop app stores conversion status in a lock file
+    desktop_lock_file = Path.home() / ".abogen" / "conversion.lock"
+    if desktop_lock_file.exists():
+        try:
+            with open(desktop_lock_file, 'r') as f:
+                desktop_status = json.load(f)
+                # Validate lock file is still active (not stale)
+                if desktop_status.get("is_converting", False):
+                    return {
+                        "active": True,
+                        "source": "desktop",
+                        "progress": desktop_status.get("progress", 0),
+                        "current_file": desktop_status.get("current_file", "Unknown"),
+                    }
+        except (json.JSONDecodeError, IOError) as e:
+            logger.debug(f"Error reading desktop lock file: {e}")
+
+    # No active conversions
+    return {
+        "active": False,
+        "source": None,
+        "progress": 0,
+        "current_file": None,
+    }
+
+
 @app.get("/api/jobs/{job_id}/download")
 async def download_job_output(job_id: str):
     """Download job output file"""

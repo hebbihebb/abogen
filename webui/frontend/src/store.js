@@ -43,6 +43,15 @@ export const useStore = create((set, get) => ({
   logs: [],
   ws: null,
 
+  // Desktop app status
+  desktopStatus: {
+    active: false,
+    source: null,
+    progress: 0,
+    currentFile: null,
+  },
+  desktopStatusPollingInterval: null,
+
   // UI state
   showSettings: false,
   showVoiceMixer: false,
@@ -76,6 +85,16 @@ export const useStore = create((set, get) => ({
   toggleChapterSelector: () => set((state) => ({ showChapterSelector: !state.showChapterSelector })),
 
   setProcessing: (processing) => set({ processing }),
+
+  // UI Event logging helper
+  logUIEvent: (message, level = 'info') => {
+    const log = {
+      timestamp: new Date().toISOString(),
+      level,
+      message
+    };
+    get().addLog(log);
+  },
 
   // API calls
   fetchEngines: async () => {
@@ -149,6 +168,9 @@ export const useStore = create((set, get) => ({
       set((state) => ({
         config: { ...state.config, referenceAudio: fileInfo.path }
       }));
+
+      // Log the upload
+      get().logUIEvent(`Reference audio updated: ${file.name}`);
 
       return fileInfo;
     } catch (error) {
@@ -323,6 +345,41 @@ export const useStore = create((set, get) => ({
       ws.close();
     }
     set({ processing: false, currentJob: null, ws: null });
+  },
+
+  fetchDesktopStatus: async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/conversion-status`);
+      const data = await response.json();
+      set({ desktopStatus: data });
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch desktop status:', error);
+    }
+  },
+
+  startDesktopStatusPolling: () => {
+    const state = get();
+
+    // Don't create multiple polling intervals
+    if (state.desktopStatusPollingInterval) {
+      return;
+    }
+
+    // Poll every 2 seconds
+    const interval = setInterval(async () => {
+      await get().fetchDesktopStatus();
+    }, 2000);
+
+    set({ desktopStatusPollingInterval: interval });
+  },
+
+  stopDesktopStatusPolling: () => {
+    const { desktopStatusPollingInterval } = get();
+    if (desktopStatusPollingInterval) {
+      clearInterval(desktopStatusPollingInterval);
+      set({ desktopStatusPollingInterval: null });
+    }
   },
 
   // Debug actions

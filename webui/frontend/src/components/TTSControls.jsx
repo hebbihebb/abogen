@@ -16,6 +16,7 @@ const TTSControls = () => {
     toggleSettings,
     toggleVoiceMixer,
     uploadReferenceAudio,
+    logUIEvent,
   } = useStore();
 
   const onDropReference = async (acceptedFiles) => {
@@ -39,6 +40,7 @@ const TTSControls = () => {
 
   const clearReferenceAudio = () => {
     updateConfig({ referenceAudio: null });
+    logUIEvent('Reference audio cleared');
   };
 
   useEffect(() => {
@@ -66,6 +68,10 @@ const TTSControls = () => {
     }
 
     updateConfig(updates);
+
+    // Log engine change
+    const engineName = engine === 'kokoro' ? 'Kokoro-82M' : 'F5-TTS';
+    logUIEvent(`Engine changed to ${engineName}`);
   };
 
   const getCurrentProfileName = () => {
@@ -83,12 +89,14 @@ const TTSControls = () => {
   const handleProfileSelect = (profileName) => {
     if (!profileName) {
       updateConfig({ voiceFormula: null });
+      logUIEvent('Voice profile cleared');
       return;
     }
 
     const profile = voiceProfiles.find(p => p.name === profileName);
     if (profile) {
       updateConfig({ voiceFormula: profile.formula });
+      logUIEvent(`Voice profile '${profileName}' applied`);
     }
   };
 

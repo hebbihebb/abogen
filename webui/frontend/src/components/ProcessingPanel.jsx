@@ -9,6 +9,7 @@ const ProcessingPanel = () => {
     currentJob,
     jobStatus,
     fileInfo,
+    desktopStatus,
     startConversion,
     cancelJob,
     downloadOutput,
@@ -30,7 +31,8 @@ const ProcessingPanel = () => {
     }
   };
 
-  const canStart = fileInfo && !processing;
+  const isDesktopConverting = desktopStatus?.active && desktopStatus?.source === 'desktop';
+  const canStart = fileInfo && !processing && !isDesktopConverting;
   const canCancel = processing;
   const canDownload = jobStatus?.status === 'completed';
 
@@ -108,6 +110,11 @@ const ProcessingPanel = () => {
       {!fileInfo && (
         <p className="text-sm text-gray-500 mt-4 text-center">
           Upload a file to begin
+        </p>
+      )}
+      {fileInfo && !processing && isDesktopConverting && (
+        <p className="text-sm text-orange-600 mt-4 text-center">
+          Desktop app is currently converting. Please wait for it to complete.
         </p>
       )}
     </div>

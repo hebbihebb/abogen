@@ -8,14 +8,23 @@ import ChapterSelector from './components/ChapterSelector';
 import VoiceMixer from './components/VoiceMixer';
 import SystemMonitor from './components/SystemMonitor';
 import Settings from './components/Settings';
+import StatusBanner from './components/StatusBanner';
 import useStore from './store';
 
 function App() {
-  const { fetchEngines, config } = useStore();
+  const { fetchEngines, config, startDesktopStatusPolling, stopDesktopStatusPolling } = useStore();
 
   useEffect(() => {
     // Initialize on mount
     fetchEngines();
+
+    // Start polling for desktop app status
+    startDesktopStatusPolling();
+
+    // Cleanup on unmount
+    return () => {
+      stopDesktopStatusPolling();
+    };
   }, []);
 
   return (
@@ -47,6 +56,9 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* Status Banner */}
+      <StatusBanner />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
