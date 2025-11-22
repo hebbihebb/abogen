@@ -264,9 +264,9 @@ class F5TTSBackend:
                 if audio.ndim > 1:
                     audio = audio.flatten()
 
-                # Use chunk characters as graphemes for progress tracking
-                # This allows the GUI to track progress based on text length
-                graphemes = list(chunk)
+                # Use words as graphemes for subtitle generation
+                # Split by whitespace to get individual words for proper subtitle timing
+                graphemes = chunk.split()
 
                 yield TTSResult(
                     audio=audio,

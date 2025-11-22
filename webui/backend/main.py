@@ -545,15 +545,57 @@ async def run_conversion(job_id: str):
             if hasattr(result, 'subtitle_data') and result.subtitle_data:
                 subtitle_entries.extend(result.subtitle_data)
             elif hasattr(result, 'graphemes') and result.graphemes:
-                # Collect graphemes for subtitle generation (even if disabled now, might be useful)
+                # Collect graphemes for subtitle generation
                 grapheme_count = len(result.graphemes)
                 if grapheme_count > 0:
                     time_per_grapheme = chunk_duration / grapheme_count
-                    for grapheme in result.graphemes:
-                        grapheme_end = current_time + time_per_grapheme
-                        if grapheme.strip():  # Only add non-empty graphemes
-                            subtitle_entries.append((current_time, grapheme_end, grapheme))
-                        current_time = grapheme_end
+
+                    # Check if graphemes are words (F5-TTS) or characters (Kokoro)
+                    # If average grapheme length > 1, they're likely words
+                    avg_grapheme_len = sum(len(str(g)) for g in result.graphemes) / grapheme_count
+
+                    if avg_grapheme_len > 1.5:
+                        # Graphemes are already words (F5-TTS), use them directly
+                        for grapheme in result.graphemes:
+                            grapheme_end = current_time + time_per_grapheme
+                            if str(grapheme).strip():
+                                subtitle_entries.append((current_time, grapheme_end, str(grapheme)))
+                            current_time = grapheme_end
+                    else:
+                        # Graphemes are characters (Kokoro), group them into words
+                        word_buffer = []
+                        word_start_time = current_time
+
+                        for grapheme in result.graphemes:
+                            char = str(grapheme)
+                            grapheme_end = current_time + time_per_grapheme
+
+                            # Check if this character is whitespace or punctuation that ends a word
+                            if char.strip() and not char in '.,;:!?—-':
+                                # Add to current word
+                                word_buffer.append(char)
+                            else:
+                                # End of word - create subtitle entry if we have accumulated chars
+                                if word_buffer:
+                                    word_text = ''.join(word_buffer)
+                                    subtitle_entries.append((word_start_time, current_time, word_text))
+                                    word_buffer = []
+
+                                # Include punctuation with the previous word if it exists
+                                if char.strip() and char in '.,;:!?—-' and subtitle_entries:
+                                    # Update the last entry to include punctuation
+                                    last_entry = subtitle_entries[-1]
+                                    subtitle_entries[-1] = (last_entry[0], grapheme_end, last_entry[2] + char)
+
+                                # Reset word start time for next word
+                                word_start_time = grapheme_end
+
+                            current_time = grapheme_end
+
+                        # Add any remaining word
+                        if word_buffer:
+                            word_text = ''.join(word_buffer)
+                            subtitle_entries.append((word_start_time, current_time, word_text))
                 else:
                     current_time += chunk_duration
             else:
