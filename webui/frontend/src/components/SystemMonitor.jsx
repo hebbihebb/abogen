@@ -57,20 +57,24 @@ export default function SystemMonitor() {
                 </div>
             </div>
 
-            {gpuUsage !== null && (
+            <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-gray-600" />
                 <div className="flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-gray-600" />
-                    <div className="flex items-center gap-2">
-                        <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-green-500 transition-all duration-300"
-                                style={{ width: `${gpuUsage}%` }}
-                            />
-                        </div>
-                        <span className="text-gray-700 w-10 text-right">{Math.round(gpuUsage)}%</span>
-                    </div>
+                    {gpuUsage !== null ? (
+                        <>
+                            <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-green-500 transition-all duration-300"
+                                    style={{ width: `${gpuUsage}%` }}
+                                />
+                            </div>
+                            <span className="text-gray-700 w-10 text-right">{Math.round(gpuUsage)}%</span>
+                        </>
+                    ) : (
+                        <span className="text-gray-500 w-10 text-right">N/A</span>
+                    )}
                 </div>
-            )}
+            </div>
         </div>
     );
 }
