@@ -93,7 +93,7 @@ class JobManager:
         """Get job by ID"""
         return self.jobs.get(job_id)
 
-    def add_log(self, job_id: str, message: str, level: str = "info"):
+    async def add_log(self, job_id: str, message: str, level: str = "info"):
         """Add log message to job"""
         if job_id in self.jobs:
             log_entry = {
@@ -105,26 +105,28 @@ class JobManager:
 
             # Send to WebSocket if connected
             if job_id in self.websockets:
-                asyncio.create_task(
-                    self.websockets[job_id].send_json({
+                try:
+                    await self.websockets[job_id].send_json({
                         "type": "log",
                         "data": log_entry,
                     })
-                )
+                except Exception as e:
+                    logger.debug(f"Failed to send log to WebSocket: {e}")
 
-    def update_progress(self, job_id: str, progress: float):
+    async def update_progress(self, job_id: str, progress: float):
         """Update job progress"""
         if job_id in self.jobs:
             self.jobs[job_id]["progress"] = progress
 
             # Send to WebSocket if connected
             if job_id in self.websockets:
-                asyncio.create_task(
-                    self.websockets[job_id].send_json({
+                try:
+                    await self.websockets[job_id].send_json({
                         "type": "progress",
                         "data": {"progress": progress},
                     })
-                )
+                except Exception as e:
+                    logger.debug(f"Failed to send progress to WebSocket: {e}")
 
 job_manager = JobManager()
 
@@ -344,11 +346,11 @@ async def run_conversion(job_id: str):
 
         config = job["config"]
         job_manager.update_job(job_id, status="processing")
-        job_manager.add_log(job_id, "Starting TTS conversion...", "info")
+        await job_manager.add_log(job_id, "Starting TTS conversion...", "info")
 
         # Load input file
         file_path = config["file_path"]
-        job_manager.add_log(job_id, f"Loading file: {Path(file_path).name}", "info")
+        await job_manager.add_log(job_id, f"Loading file: {Path(file_path).name}", "info")
 
         # Extract text
         text = ""
@@ -373,11 +375,11 @@ async def run_conversion(job_id: str):
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
-        job_manager.add_log(job_id, f"Extracted {len(text)} characters", "info")
+        await job_manager.add_log(job_id, f"Extracted {len(text)} characters", "info")
 
         # Initialize TTS backend
         engine = config.get("engine", "kokoro")
-        job_manager.add_log(job_id, f"Loading {engine} engine...", "info")
+        await job_manager.add_log(job_id, f"Loading {engine} engine...", "info")
 
         device = "cuda" if config.get("use_gpu", False) else "cpu"
         backend = create_tts_engine(engine, lang_code="en-us", device=device)
@@ -393,11 +395,11 @@ async def run_conversion(job_id: str):
             # If reference audio is provided (e.g. for F5-TTS), use it as the voice
             voice = reference_audio
 
-        job_manager.add_log(job_id, f"Using voice: {voice}", "info")
+        await job_manager.add_log(job_id, f"Using voice: {voice}", "info")
 
         # Generate audio
         speed = config.get("speed", 1.0)
-        job_manager.add_log(job_id, f"Generating audio at {speed}x speed...", "info")
+        await job_manager.add_log(job_id, f"Generating audio at {speed}x speed...", "info")
 
         audio_chunks = []
         total_chunks = 0
@@ -409,10 +411,10 @@ async def run_conversion(job_id: str):
             if sample_rate is None:
                 sample_rate = getattr(result, "sample_rate", None)
             progress = min(90, (i + 1) * 10)  # Cap at 90% until encoding
-            job_manager.update_progress(job_id, progress)
-            job_manager.add_log(job_id, f"Generated chunk {i+1}", "debug")
+            await job_manager.update_progress(job_id, progress)
+            await job_manager.add_log(job_id, f"Generated chunk {i+1}", "debug")
 
-        job_manager.add_log(job_id, f"Generated {total_chunks} audio chunks", "info")
+        await job_manager.add_log(job_id, f"Generated {total_chunks} audio chunks", "info")
 
         if not audio_chunks:
             raise ValueError("No audio was generated; check input text and engine configuration.")
@@ -427,14 +429,14 @@ async def run_conversion(job_id: str):
         output_format = config.get("output_format", "wav")
         output_path = job_manager.temp_dir / f"{job_id}.{output_format}"
 
-        job_manager.add_log(job_id, f"Encoding to {output_format}...", "info")
+        await job_manager.add_log(job_id, f"Encoding to {output_format}...", "info")
 
         # Save using soundfile
         import soundfile as sf
         sf.write(str(output_path), combined_audio, sample_rate)
 
-        job_manager.update_progress(job_id, 100)
-        job_manager.add_log(job_id, "Conversion complete!", "success")
+        await job_manager.update_progress(job_id, 100)
+        await job_manager.add_log(job_id, "Conversion complete!", "success")
 
         # Update job with output file
         job_manager.update_job(
@@ -445,7 +447,7 @@ async def run_conversion(job_id: str):
 
     except Exception as e:
         logger.error(f"Error in conversion job {job_id}: {e}")
-        job_manager.add_log(job_id, f"Error: {str(e)}", "error")
+        await job_manager.add_log(job_id, f"Error: {str(e)}", "error")
         job_manager.update_job(job_id, status="failed", error=str(e))
 
 
@@ -491,12 +493,25 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
         if job:
             await websocket.send_json({"type": "init", "data": job})
 
-        # Keep connection alive
+        # Keep connection alive by listening for messages
+        # The background tasks will send updates via the stored websocket reference
         while True:
-            data = await websocket.receive_text()
-            # Echo back for keep-alive
-            await websocket.send_json({"type": "pong"})
+            try:
+                # Set a short timeout to allow periodic checks
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                # Echo back for keep-alive if needed
+                if data:
+                    await websocket.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                # Connection is still alive, no incoming data
+                # The server can still send data to the client
+                pass
     except WebSocketDisconnect:
+        if job_id in job_manager.websockets:
+            del job_manager.websockets[job_id]
+        logger.info(f"WebSocket disconnected for job {job_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for job {job_id}: {e}")
         if job_id in job_manager.websockets:
             del job_manager.websockets[job_id]
 
