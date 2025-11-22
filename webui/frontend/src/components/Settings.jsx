@@ -171,6 +171,43 @@ const Settings = () => {
             </div>
           </div>
 
+          {/* Debug Settings */}
+          <div className="border-t pt-6">
+            <h3 className="text-lg font-medium text-gray-800 mb-3">
+              Debug
+            </h3>
+            <div className="space-y-4">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => useStore.getState().startDebugJob()}
+                  className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Start Debug Session
+                </button>
+                <button
+                  onClick={() => useStore.getState().sendDebugLog('Test log message', 'info')}
+                  className="flex-1 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Send Test Log
+                </button>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => useStore.getState().sendDebugLog('Warning message', 'warning')}
+                  className="flex-1 px-4 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Send Warning
+                </button>
+                <button
+                  onClick={() => useStore.getState().sendDebugLog('Error message', 'error')}
+                  className="flex-1 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Send Error
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* About */}
           <div className="border-t pt-6">
             <h3 className="text-lg font-medium text-gray-800 mb-3">About</h3>

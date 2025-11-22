@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 
-// Dynamically determine API URL based on current host
-const API_URL = `http://${window.location.hostname}:8000`;
+// Dynamically determine API URL
+const API_URL = import.meta.env.DEV
+  ? `http://${window.location.hostname}:8000`
+  : window.location.origin;
 
 export const useStore = create((set, get) => ({
   // File state
@@ -241,6 +243,10 @@ export const useStore = create((set, get) => ({
       } else if (message.type === 'progress') {
         set({ progress: message.data.progress });
       } else if (message.type === 'init') {
+        // Initialize with existing logs if any
+        if (message.data.logs && message.data.logs.length > 0) {
+          set({ logs: message.data.logs });
+        }
         set({ jobStatus: message.data });
       }
     };
@@ -270,6 +276,13 @@ export const useStore = create((set, get) => ({
         progress: jobData.progress || 100,
         processing: jobData.status === 'processing'
       });
+
+      // Update logs if available
+      if (jobData.logs && jobData.logs.length > 0) {
+        // We replace logs here to ensure we have the full history
+        // In a more complex app we might want to merge, but this is safer for now
+        set({ logs: jobData.logs });
+      }
 
       // If still processing, poll again after a delay
       if (jobData.status === 'processing') {
@@ -305,6 +318,33 @@ export const useStore = create((set, get) => ({
       ws.close();
     }
     set({ processing: false, currentJob: null, ws: null });
+  },
+
+  // Debug actions
+  startDebugJob: () => {
+    const jobId = 'debug-' + Date.now();
+    set({ currentJob: jobId, processing: true, logs: [], progress: 0 });
+    get().connectWebSocket(jobId);
+    return jobId;
+  },
+
+  sendDebugLog: async (message, level = 'info') => {
+    const { currentJob } = get();
+    if (!currentJob) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('job_id', currentJob);
+      formData.append('message', message);
+      formData.append('level', level);
+
+      await fetch(`${API_URL}/api/debug/log`, {
+        method: 'POST',
+        body: formData,
+      });
+    } catch (error) {
+      console.error('Failed to send debug log:', error);
+    }
   },
 }));
 

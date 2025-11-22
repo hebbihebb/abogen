@@ -55,9 +55,10 @@ app.add_middleware(
 )
 
 # Serve built frontend if present
-FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
-if FRONTEND_DIST.exists():
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+# Serve built frontend if present - MOVED TO END
+# FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+# if FRONTEND_DIST.exists():
+#     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 
 # Global state management
 class JobManager:
@@ -173,7 +174,7 @@ class VoiceInfo(BaseModel):
 
 
 # API Endpoints
-@app.get("/")
+@app.get("/api/health")
 async def root():
     """Health check endpoint"""
     return {"status": "ok", "message": "Abogen Web UI API"}
@@ -547,36 +548,47 @@ async def system_monitor_websocket(websocket: WebSocket):
         import asyncio
         
         # Try to import GPU monitoring (optional)
+        gpu_available = False
+        handle = None
         try:
             import pynvml
             pynvml.nvmlInit()
             gpu_available = True
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # First GPU
-        except:
+        except Exception as e:
+            logger.warning(f"GPU monitoring not available: {e}")
             gpu_available = False
         
         while True:
-            # Get CPU usage
-            cpu_percent = psutil.cpu_percent(interval=0.5)
-            
-            # Get memory usage
-            memory = psutil.virtual_memory()
-            
-            # Get GPU usage if available
-            gpu_percent = None
-            if gpu_available:
-                try:
-                    utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                    gpu_percent = utilization.gpu
-                except:
-                    gpu_percent = None
-            
-            # Send data
-            await websocket.send_json({
-                "cpu": cpu_percent,
-                "memory": memory.percent,
-                "gpu": gpu_percent
-            })
+            try:
+                # Get CPU usage
+                cpu_percent = psutil.cpu_percent(interval=None) # Non-blocking first call
+                if cpu_percent == 0.0: # If first call, wait a bit
+                     await asyncio.sleep(0.1)
+                     cpu_percent = psutil.cpu_percent(interval=None)
+
+                # Get memory usage
+                memory = psutil.virtual_memory()
+                
+                # Get GPU usage if available
+                gpu_percent = None
+                if gpu_available and handle:
+                    try:
+                        utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                        gpu_percent = utilization.gpu
+                    except Exception as e:
+                        logger.debug(f"Error getting GPU stats: {e}")
+                        gpu_percent = None
+                
+                # Send data
+                await websocket.send_json({
+                    "cpu": cpu_percent,
+                    "memory": memory.percent,
+                    "gpu": gpu_percent
+                })
+            except Exception as e:
+                logger.error(f"Error in system monitor loop: {e}")
+                break
             
             await asyncio.sleep(2)  # Update every 2 seconds
     except Exception as e:
@@ -631,6 +643,39 @@ async def load_demo():
     except Exception as e:
         logger.error(f"Error loading demo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/debug/log")
+async def debug_log(
+    job_id: str = Form(...),
+    message: str = Form(...),
+    level: str = Form("info"),
+):
+    """Inject a debug log message"""
+    try:
+        # Create job if it doesn't exist (for testing without conversion)
+        if job_id not in job_manager.jobs:
+            job_manager.jobs[job_id] = {
+                "id": job_id,
+                "status": "debug",
+                "config": {},
+                "progress": 0,
+                "logs": [],
+                "created_at": datetime.now().isoformat(),
+                "output_files": [],
+                "error": None,
+            }
+
+        await job_manager.add_log(job_id, message, level)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error injecting debug log: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Serve built frontend if present
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

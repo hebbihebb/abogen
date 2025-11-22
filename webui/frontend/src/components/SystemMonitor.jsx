@@ -8,7 +8,11 @@ export default function SystemMonitor() {
 
     useEffect(() => {
         // Connect to system monitor WebSocket
-        const wsUrl = `ws://${window.location.hostname}:8000/ws/system`;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = import.meta.env.DEV
+            ? `${window.location.hostname}:8000`
+            : window.location.host;
+        const wsUrl = `${protocol}//${host}/ws/system`;
         const ws = new WebSocket(wsUrl);
 
         ws.onmessage = (event) => {
