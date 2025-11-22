@@ -184,7 +184,9 @@ async def root():
 async def get_engines():
     """Get list of available TTS engines"""
     try:
-        engines = get_available_engines()
+        # Return both available engines for the web UI
+        # Kokoro is always available, F5-TTS is available for voice cloning
+        engines = ["kokoro", "f5_tts"]
         return {"engines": engines}
     except Exception as e:
         logger.error(f"Error getting engines: {e}")
@@ -482,6 +484,72 @@ async def download_job_output(job_id: str):
     )
 
 
+@app.websocket("/ws/system")
+async def system_monitor_websocket(websocket: WebSocket):
+    """WebSocket endpoint for system resource monitoring"""
+    await websocket.accept()
+    logger.info("System monitor WebSocket connected")
+
+    gpu_available = False
+    handle = None
+
+    try:
+        import psutil
+
+        # Try to import GPU monitoring (optional)
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            gpu_available = True
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # First GPU
+            logger.info("GPU monitoring enabled")
+        except Exception as e:
+            logger.info(f"GPU monitoring not available: {e}")
+            gpu_available = False
+
+        logger.info("Starting system monitor loop")
+        while True:
+            try:
+                # Get CPU usage with proper blocking interval on first call
+                # Initial call with interval to initialize the sampling
+                cpu_percent = psutil.cpu_percent(interval=0.1)
+
+                # Get memory usage
+                memory = psutil.virtual_memory()
+
+                # Get GPU usage if available
+                gpu_percent = None
+                if gpu_available and handle:
+                    try:
+                        utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                        gpu_percent = utilization.gpu
+                    except Exception as e:
+                        logger.debug(f"Error getting GPU stats: {e}")
+                        gpu_percent = None
+
+                # Send data
+                logger.debug(f"Sending system stats: CPU={cpu_percent}%, Mem={memory.percent}%")
+                await websocket.send_json({
+                    "cpu": cpu_percent,
+                    "memory": memory.percent,
+                    "gpu": gpu_percent
+                })
+            except Exception as e:
+                logger.error(f"Error in system monitor loop: {type(e).__name__}: {e}")
+                break
+
+            await asyncio.sleep(2)  # Update every 2 seconds
+    except Exception as e:
+        logger.error(f"System monitor WebSocket error: {type(e).__name__}: {e}", exc_info=True)
+    finally:
+        logger.info("System monitor WebSocket closing")
+        if gpu_available:
+            try:
+                pynvml.nvmlShutdown()
+            except:
+                pass
+
+
 @app.websocket("/ws/{job_id}")
 async def websocket_endpoint(websocket: WebSocket, job_id: str):
     """WebSocket endpoint for real-time job updates"""
@@ -539,66 +607,6 @@ async def update_config(config: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.websocket("/ws/system")
-async def system_monitor_websocket(websocket: WebSocket):
-    """WebSocket endpoint for system resource monitoring"""
-    await websocket.accept()
-    try:
-        import psutil
-        import asyncio
-        
-        # Try to import GPU monitoring (optional)
-        gpu_available = False
-        handle = None
-        try:
-            import pynvml
-            pynvml.nvmlInit()
-            gpu_available = True
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # First GPU
-        except Exception as e:
-            logger.warning(f"GPU monitoring not available: {e}")
-            gpu_available = False
-        
-        while True:
-            try:
-                # Get CPU usage
-                cpu_percent = psutil.cpu_percent(interval=None) # Non-blocking first call
-                if cpu_percent == 0.0: # If first call, wait a bit
-                     await asyncio.sleep(0.1)
-                     cpu_percent = psutil.cpu_percent(interval=None)
-
-                # Get memory usage
-                memory = psutil.virtual_memory()
-                
-                # Get GPU usage if available
-                gpu_percent = None
-                if gpu_available and handle:
-                    try:
-                        utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                        gpu_percent = utilization.gpu
-                    except Exception as e:
-                        logger.debug(f"Error getting GPU stats: {e}")
-                        gpu_percent = None
-                
-                # Send data
-                await websocket.send_json({
-                    "cpu": cpu_percent,
-                    "memory": memory.percent,
-                    "gpu": gpu_percent
-                })
-            except Exception as e:
-                logger.error(f"Error in system monitor loop: {e}")
-                break
-            
-            await asyncio.sleep(2)  # Update every 2 seconds
-    except Exception as e:
-        logger.info(f"System monitor WebSocket closed: {e}")
-    finally:
-        if gpu_available:
-            try:
-                pynvml.nvmlShutdown()
-            except:
-                pass
 
 
 @app.post("/api/demo/load")

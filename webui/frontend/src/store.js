@@ -169,16 +169,21 @@ export const useStore = create((set, get) => ({
 
       const data = await response.json();
 
+      // Load demo with F5-TTS engine and reference audio
       set((state) => ({
-        file: { name: data.file_info.filename }, // Mock file object
+        file: { name: data.file_info.filename },
         fileInfo: data.file_info,
         showChapterSelector: true,
         config: {
           ...state.config,
           engine: 'f5_tts',
-          referenceAudio: data.reference_audio
+          referenceAudio: data.reference_audio,
+          voiceFormula: null, // Clear voice formula when switching to f5_tts
         }
       }));
+
+      // Fetch voices for the F5-TTS engine
+      get().fetchVoices('f5_tts');
 
       return data;
     } catch (error) {

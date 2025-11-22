@@ -51,7 +51,18 @@ const TTSControls = () => {
 
   const handleEngineChange = (e) => {
     const engine = e.target.value;
-    updateConfig({ engine });
+
+    // Clear engine-specific settings when switching
+    const updates = { engine };
+    if (engine === 'kokoro') {
+      // Switching to Kokoro - clear reference audio
+      updates.referenceAudio = null;
+    } else if (engine === 'f5_tts') {
+      // Switching to F5-TTS - clear voice formula
+      updates.voiceFormula = null;
+    }
+
+    updateConfig(updates);
   };
 
   return (
