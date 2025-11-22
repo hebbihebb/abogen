@@ -38,6 +38,77 @@ from abogen import voice_profiles
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _get_file_type(suffix: str) -> str:
+    """Determine file type from extension"""
+    audio_exts = {'.wav', '.mp3', '.m4b', '.opus', '.flac', '.ogg', '.aac'}
+    subtitle_exts = {'.srt', '.ass', '.vtt'}
+
+    suffix_lower = suffix.lower()
+    if suffix_lower in audio_exts:
+        return 'audio'
+    elif suffix_lower in subtitle_exts:
+        return 'subtitle'
+    else:
+        return 'other'
+
+
+def _format_srt_time(seconds: float) -> str:
+    """Format time in SRT format (HH:MM:SS,mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _write_srt_subtitles(path: Path, entries: list):
+    """Write SRT subtitle file"""
+    with open(path, 'w', encoding='utf-8') as f:
+        for i, (start, end, text) in enumerate(entries, 1):
+            f.write(f"{i}\n")
+            f.write(f"{_format_srt_time(start)} --> {_format_srt_time(end)}\n")
+            f.write(f"{text}\n\n")
+
+
+def _write_vtt_subtitles(path: Path, entries: list):
+    """Write VTT subtitle file"""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write("WEBVTT\n\n")
+        for start, end, text in entries:
+            f.write(f"{_format_srt_time(start)} --> {_format_srt_time(end)}\n")
+            f.write(f"{text}\n\n")
+
+
+def _write_ass_subtitles(path: Path, entries: list, style: str = "ass_wide"):
+    """Write ASS/SSA subtitle file with styling"""
+    with open(path, 'w', encoding='utf-8') as f:
+        # Write header
+        f.write("[Script Info]\n")
+        f.write("Title: Abogen Subtitles\n")
+        f.write("ScriptType: v4.00+\n\n")
+
+        f.write("[V4+ Styles]\n")
+        f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+        f.write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1\n\n")
+
+        f.write("[Events]\n")
+        f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+        for start, end, text in entries:
+            start_time = _format_ass_time(start)
+            end_time = _format_ass_time(end)
+            f.write(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}\n")
+
+
+def _format_ass_time(seconds: float) -> str:
+    """Format time in ASS format (H:MM:SS.cc)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centis = int((seconds % 1) * 100)
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Abogen Web UI API",
@@ -70,9 +141,28 @@ class JobManager:
         self.temp_dir = Path(tempfile.gettempdir()) / "abogen_webui"
         self.temp_dir.mkdir(exist_ok=True)
 
+        # Set up persistent output directory
+        project_root = Path(__file__).parent.parent.parent
+        self.output_dir = project_root / "output"
+        self.output_dir.mkdir(exist_ok=True)
+
+    def create_output_folder(self, input_filename: str) -> Path:
+        """Create a unique output folder for a job based on input filename"""
+        # Sanitize the filename to be filesystem-safe
+        sanitized = "".join(c for c in Path(input_filename).stem if c.isalnum() or c in (' ', '-', '_'))
+        if not sanitized:
+            sanitized = "output"
+
+        folder_path = self.output_dir / sanitized
+        folder_path.mkdir(exist_ok=True)
+        return folder_path
+
     def create_job(self, config: dict) -> str:
         """Create a new job and return its ID"""
         job_id = str(uuid.uuid4())
+        input_filename = Path(config.get("file_path", "output")).name
+        output_folder = self.create_output_folder(input_filename)
+
         self.jobs[job_id] = {
             "id": job_id,
             "status": "pending",
@@ -80,6 +170,7 @@ class JobManager:
             "progress": 0,
             "logs": [],
             "created_at": datetime.now().isoformat(),
+            "output_folder": str(output_folder),
             "output_files": [],
             "error": None,
         }
@@ -316,6 +407,34 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _convert_camel_to_snake(config: dict) -> dict:
+    """Convert camelCase keys to snake_case for backend compatibility"""
+    key_mapping = {
+        "outputFormat": "output_format",
+        "generateSubtitles": "generate_subtitles",
+        "subtitleFormat": "subtitle_format",
+        "maxSubtitleWords": "max_subtitle_words",
+        "voiceFormula": "voice_formula",
+        "referenceAudio": "reference_audio",
+        "referenceText": "reference_text",
+        "useGpu": "use_gpu",
+        "separateChapters": "separate_chapters",
+        "separateChaptersFormat": "separate_chapters_format",
+        "silenceBetweenChapters": "silence_between_chapters",
+        "replaceSingleNewlines": "replace_single_newlines",
+        "selectedChapters": "selected_chapters",
+        "selectedPages": "selected_pages",
+    }
+
+    converted = {}
+    for key, value in config.items():
+        # Use mapped name if it exists, otherwise keep original
+        new_key = key_mapping.get(key, key)
+        converted[new_key] = value
+
+    return converted
+
+
 @app.post("/api/convert")
 async def start_conversion(
     file_path: str = Form(...),
@@ -324,6 +443,8 @@ async def start_conversion(
     """Start a TTS conversion job"""
     try:
         config = json.loads(config_json)
+        # Convert camelCase keys to snake_case
+        config = _convert_camel_to_snake(config)
 
         # Create job
         job_id = job_manager.create_job({
@@ -348,6 +469,7 @@ async def run_conversion(job_id: str):
             return
 
         config = job["config"]
+        output_folder = Path(job.get("output_folder", ""))  # Get output folder set at job creation
         job_manager.update_job(job_id, status="processing")
         await job_manager.add_log(job_id, "Starting TTS conversion...", "info")
 
@@ -405,14 +527,39 @@ async def run_conversion(job_id: str):
         await job_manager.add_log(job_id, f"Generating audio at {speed}x speed...", "info")
 
         audio_chunks = []
+        subtitle_entries = []
         total_chunks = 0
         sample_rate = None
+        current_time = 0.0
 
         for i, result in enumerate(backend(text, voice, speed, None)):
             audio_chunks.append(result.audio)
             total_chunks += 1
             if sample_rate is None:
                 sample_rate = getattr(result, "sample_rate", None)
+
+            # Track chunk timing
+            chunk_duration = len(result.audio) / sample_rate if sample_rate else 0
+
+            # Capture subtitle data if available
+            if hasattr(result, 'subtitle_data') and result.subtitle_data:
+                subtitle_entries.extend(result.subtitle_data)
+            elif hasattr(result, 'graphemes') and result.graphemes:
+                # Collect graphemes for subtitle generation (even if disabled now, might be useful)
+                grapheme_count = len(result.graphemes)
+                if grapheme_count > 0:
+                    time_per_grapheme = chunk_duration / grapheme_count
+                    for grapheme in result.graphemes:
+                        grapheme_end = current_time + time_per_grapheme
+                        if grapheme.strip():  # Only add non-empty graphemes
+                            subtitle_entries.append((current_time, grapheme_end, grapheme))
+                        current_time = grapheme_end
+                else:
+                    current_time += chunk_duration
+            else:
+                # No graphemes available, just track time
+                current_time += chunk_duration
+
             progress = min(90, (i + 1) * 10)  # Cap at 90% until encoding
             await job_manager.update_progress(job_id, progress)
             await job_manager.add_log(job_id, f"Generated chunk {i+1}", "debug")
@@ -428,24 +575,91 @@ async def run_conversion(job_id: str):
         import numpy as np
         combined_audio = np.concatenate(audio_chunks)
 
-        # Save audio file
-        output_format = config.get("output_format", "wav")
-        output_path = job_manager.temp_dir / f"{job_id}.{output_format}"
+        # Save audio file to output folder
+        output_format = config.get("output_format", "wav").lower()
+        generate_subtitles = config.get("generate_subtitles", "disabled")
+        subtitle_format = config.get("subtitle_format", "srt")
 
-        await job_manager.add_log(job_id, f"Encoding to {output_format}...", "info")
+        await job_manager.add_log(job_id, f"DEBUG: Output format: {output_format}, Subtitles: {generate_subtitles}, Entries collected: {len(subtitle_entries)}", "info")
 
-        # Save using soundfile
+        # Ensure output folder exists
+        output_folder.mkdir(parents=True, exist_ok=True)
+
+        # Get base filename from input file
+        input_filename = Path(file_path).stem
+
+        # First save as WAV (intermediate format)
+        temp_wav_path = output_folder / f"{input_filename}_temp.wav"
+        await job_manager.add_log(job_id, "Encoding audio...", "info")
+
         import soundfile as sf
-        sf.write(str(output_path), combined_audio, sample_rate)
+        sf.write(str(temp_wav_path), combined_audio, sample_rate)
+
+        # Convert to requested format if not WAV
+        output_path = output_folder / f"{input_filename}.{output_format}"
+
+        if output_format != "wav":
+            await job_manager.add_log(job_id, f"Converting to {output_format}...", "info")
+            import subprocess
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-i", str(temp_wav_path), "-q:a", "9", str(output_path)],
+                    capture_output=True,
+                    check=True,
+                    timeout=300
+                )
+                # Remove temp WAV file
+                temp_wav_path.unlink()
+            except subprocess.CalledProcessError as e:
+                await job_manager.add_log(job_id, f"FFmpeg error: {e.stderr.decode()}", "error")
+                raise
+        else:
+            # If WAV format, just rename the temp file
+            temp_wav_path.rename(output_path)
+
+        await job_manager.update_progress(job_id, 95)
+        await job_manager.add_log(job_id, "Encoding complete!", "info")
+
+        # Generate subtitles if enabled
+        output_files = []
+        if generate_subtitles != "disabled" and subtitle_entries:
+            await job_manager.add_log(job_id, f"Generating {subtitle_format} subtitles...", "info")
+            subtitle_path = output_folder / f"{input_filename}.{subtitle_format}"
+
+            if subtitle_format == "srt":
+                _write_srt_subtitles(subtitle_path, subtitle_entries)
+            elif subtitle_format.startswith("ass"):
+                _write_ass_subtitles(subtitle_path, subtitle_entries, subtitle_format)
+            else:
+                _write_vtt_subtitles(subtitle_path, subtitle_entries)
+
+            if subtitle_path.exists():
+                file_stat = subtitle_path.stat()
+                output_files.append({
+                    "name": subtitle_path.name,
+                    "path": str(subtitle_path),
+                    "size": file_stat.st_size,
+                    "type": "subtitle"
+                })
+
+        # Add main audio file to output files
+        if output_path.exists():
+            file_stat = output_path.stat()
+            output_files.insert(0, {  # Insert at beginning so audio is first
+                "name": output_path.name,
+                "path": str(output_path),
+                "size": file_stat.st_size,
+                "type": "audio"
+            })
 
         await job_manager.update_progress(job_id, 100)
         await job_manager.add_log(job_id, "Conversion complete!", "success")
 
-        # Update job with output file
+        # Update job with output files
         job_manager.update_job(
             job_id,
             status="completed",
-            output_files=[str(output_path)],
+            output_files=output_files,
         )
 
     except Exception as e:
@@ -507,9 +721,64 @@ async def get_conversion_status():
     }
 
 
+@app.get("/api/jobs/{job_id}/files")
+async def get_job_files(job_id: str):
+    """Get list of files in job output folder"""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    output_folder = Path(job.get("output_folder", ""))
+    if not output_folder.exists():
+        return {"folder": str(output_folder), "files": []}
+
+    files = []
+    for file_path in sorted(output_folder.iterdir()):
+        if file_path.is_file():
+            stat = file_path.stat()
+            files.append({
+                "name": file_path.name,
+                "path": str(file_path),
+                "size": stat.st_size,
+                "type": _get_file_type(file_path.suffix),
+                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+            })
+
+    return {
+        "folder": str(output_folder),
+        "files": files
+    }
+
+
+@app.get("/api/jobs/{job_id}/files/{filename}")
+async def download_job_file(job_id: str, filename: str):
+    """Download a specific file from job output folder"""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    output_folder = Path(job.get("output_folder", ""))
+    file_path = output_folder / filename
+
+    # Security: ensure the file is within the output folder
+    try:
+        file_path.resolve().relative_to(output_folder.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        str(file_path),
+        media_type="application/octet-stream",
+        filename=file_path.name,
+    )
+
+
 @app.get("/api/jobs/{job_id}/download")
 async def download_job_output(job_id: str):
-    """Download job output file"""
+    """Download job output file (main audio file for backward compatibility)"""
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -517,7 +786,17 @@ async def download_job_output(job_id: str):
     if job["status"] != "completed" or not job["output_files"]:
         raise HTTPException(status_code=400, detail="Job not completed or no output files")
 
-    output_file = job["output_files"][0]
+    # Get first audio file
+    output_files = job["output_files"]
+    if not output_files:
+        raise HTTPException(status_code=404, detail="No output files")
+
+    # Handle both old format (string) and new format (dict)
+    if isinstance(output_files[0], dict):
+        output_file = output_files[0]["path"]
+    else:
+        output_file = output_files[0]
+
     if not Path(output_file).exists():
         raise HTTPException(status_code=404, detail="Output file not found")
 

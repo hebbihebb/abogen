@@ -42,6 +42,8 @@ export const useStore = create((set, get) => ({
   progress: 0,
   logs: [],
   ws: null,
+  outputFolder: null,
+  outputFiles: [],
 
   // Desktop app status
   desktopStatus: {
@@ -78,6 +80,8 @@ export const useStore = create((set, get) => ({
   setProgress: (progress) => set({ progress }),
   addLog: (log) => set((state) => ({ logs: [...state.logs, log] })),
   clearLogs: () => set({ logs: [] }),
+  setOutputFolder: (folder) => set({ outputFolder: folder }),
+  setOutputFiles: (files) => set({ outputFiles: files }),
 
   toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
   toggleVoiceMixer: () => set((state) => ({ showVoiceMixer: !state.showVoiceMixer })),
@@ -222,7 +226,7 @@ export const useStore = create((set, get) => ({
     }
 
     try {
-      set({ processing: true, logs: [], progress: 0 });
+      set({ processing: true, logs: [], progress: 0, outputFolder: null, outputFiles: [] });
 
       const formData = new FormData();
       formData.append('file_path', fileInfo.path);
@@ -275,6 +279,12 @@ export const useStore = create((set, get) => ({
           set({ logs: message.data.logs });
         }
         set({ jobStatus: message.data });
+
+        // If job is already completed, fetch output files
+        if (message.data.status === 'completed' && message.data.output_folder) {
+          set({ outputFolder: message.data.output_folder });
+          get().fetchOutputFiles(jobId);
+        }
       }
     };
 
@@ -311,6 +321,12 @@ export const useStore = create((set, get) => ({
         set({ logs: jobData.logs });
       }
 
+      // Update output folder when job completes
+      if (jobData.status === 'completed' && jobData.output_folder) {
+        set({ outputFolder: jobData.output_folder });
+        get().fetchOutputFiles(jobId);
+      }
+
       // If still processing, poll again after a delay
       if (jobData.status === 'processing') {
         setTimeout(() => get().pollJobStatus(jobId), 2000);
@@ -318,6 +334,19 @@ export const useStore = create((set, get) => ({
     } catch (error) {
       console.error('Failed to poll job status:', error);
       set({ processing: false });
+    }
+  },
+
+  fetchOutputFiles: async (jobId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}/files`);
+      const data = await response.json();
+      set({
+        outputFolder: data.folder,
+        outputFiles: data.files
+      });
+    } catch (error) {
+      console.error('Failed to fetch output files:', error);
     }
   },
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Play, StopCircle, Download } from 'lucide-react';
 import useStore from '../store';
+import OutputPanel from './OutputPanel';
 
 const ProcessingPanel = () => {
   const {
@@ -35,6 +36,11 @@ const ProcessingPanel = () => {
   const canStart = fileInfo && !processing && !isDesktopConverting;
   const canCancel = processing;
   const canDownload = jobStatus?.status === 'completed';
+
+  // Show output panel when job is completed
+  if (jobStatus?.status === 'completed') {
+    return <OutputPanel />;
+  }
 
   return (
     <div className="card">

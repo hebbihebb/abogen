@@ -5,10 +5,16 @@ import useStore from '../store';
 const LogViewer = () => {
   const { logs } = useStore();
   const logEndRef = useRef(null);
+  const logContainerRef = useRef(null);
 
   useEffect(() => {
-    // Auto-scroll to bottom when new logs arrive
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Auto-scroll to bottom immediately when new logs arrive
+    if (logEndRef.current && logContainerRef.current) {
+      // Use setTimeout to ensure DOM has updated
+      setTimeout(() => {
+        logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+      }, 0);
+    }
   }, [logs]);
 
   const getLogColor = (level) => {
@@ -33,7 +39,7 @@ const LogViewer = () => {
         <h3 className="text-lg font-semibold text-gray-800">Processing Log</h3>
       </div>
 
-      <div className="bg-gray-50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+      <div ref={logContainerRef} className="bg-gray-50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
         {logs.length === 0 ? (
           <p className="text-gray-400 text-center py-8">
             No logs yet. Start a conversion to see progress here.
@@ -42,10 +48,10 @@ const LogViewer = () => {
           <div className="space-y-1">
             {logs.map((log, index) => (
               <div key={index} className="flex gap-2">
-                <span className="text-gray-400 text-xs">
+                <span className="text-gray-400 text-xs flex-shrink-0">
                   {new Date(log.timestamp).toLocaleTimeString()}
                 </span>
-                <span className={getLogColor(log.level)}>
+                <span className={`${getLogColor(log.level)} flex-1 break-words`}>
                   {log.message}
                 </span>
               </div>
