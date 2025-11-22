@@ -8,9 +8,11 @@ const TTSControls = () => {
     config,
     engines,
     voices,
+    voiceProfiles,
     updateConfig,
     fetchEngines,
     fetchVoices,
+    fetchVoiceProfiles,
     toggleSettings,
     toggleVoiceMixer,
     uploadReferenceAudio,
@@ -41,6 +43,7 @@ const TTSControls = () => {
 
   useEffect(() => {
     fetchEngines();
+    fetchVoiceProfiles();
   }, []);
 
   useEffect(() => {
@@ -63,6 +66,30 @@ const TTSControls = () => {
     }
 
     updateConfig(updates);
+  };
+
+  const getCurrentProfileName = () => {
+    // Find which profile matches the current voiceFormula
+    if (!config.voiceFormula) return '';
+
+    const currentFormula = JSON.stringify(config.voiceFormula);
+    const matchingProfile = voiceProfiles.find(
+      p => JSON.stringify(p.formula) === currentFormula
+    );
+
+    return matchingProfile ? matchingProfile.name : '';
+  };
+
+  const handleProfileSelect = (profileName) => {
+    if (!profileName) {
+      updateConfig({ voiceFormula: null });
+      return;
+    }
+
+    const profile = voiceProfiles.find(p => p.name === profileName);
+    if (profile) {
+      updateConfig({ voiceFormula: profile.formula });
+    }
   };
 
   return (
@@ -117,6 +144,27 @@ const TTSControls = () => {
           )}
         </select>
       </div>
+
+      {/* Voice Profiles */}
+      {config.engine === 'kokoro' && voiceProfiles.length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Voice Profile
+          </label>
+          <select
+            value={getCurrentProfileName()}
+            onChange={(e) => handleProfileSelect(e.target.value)}
+            className="select-field"
+          >
+            <option value="">No Profile (Default)</option>
+            {voiceProfiles.map((profile) => (
+              <option key={profile.name} value={profile.name}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* F5-TTS Reference Audio */}
       {config.engine === 'f5_tts' && (
