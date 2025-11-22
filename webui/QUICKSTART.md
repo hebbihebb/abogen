@@ -14,14 +14,21 @@ node --version
 
 ## Installation
 
-### Step 1: Install Abogen
+### Step 1: Activate Virtual Environment
 
 ```bash
 # From the root abogen directory
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+### Step 2: Install Abogen
+
+```bash
+# From the root abogen directory (with .venv activated)
 pip install -e .
 ```
 
-### Step 2: Install Web UI Dependencies
+### Step 3: Install Web UI Dependencies
 
 **Backend:**
 ```bash
@@ -37,21 +44,34 @@ npm install
 
 ## Running the Web UI
 
-### Option 1: Automatic (Recommended)
+### Option 1: Using Startup Scripts (Recommended)
+
+The startup scripts automatically use the project's virtual environment.
 
 **Linux/Mac:**
 ```bash
 cd webui
-./start.sh
+./start_backend.sh  # In Terminal 1
 ```
 
 **Windows:**
 ```bash
 cd webui
-start.bat
+start_backend.bat  # In Terminal 1
 ```
 
-### Option 2: Manual
+Then in another terminal:
+```bash
+cd webui/frontend
+npm run dev  # In Terminal 2
+```
+
+### Option 2: Manual (with .venv activated)
+
+Make sure you've activated the virtual environment first:
+```bash
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
 
 **Terminal 1 - Backend:**
 ```bash
@@ -127,9 +147,17 @@ taskkill /PID <PID> /F
 ```
 
 **Backend Import Error:**
+
+If you get errors about missing modules (kokoro, misaki, etc.), make sure:
+1. You've activated the virtual environment: `source .venv/bin/activate`
+2. You've installed abogen and dependencies: `pip install -e .` from the root
+3. You've installed backend dependencies: `pip install -r webui/backend/requirements.txt`
+4. Use the startup scripts which handle the environment automatically
+
+Or use the virtual environment's Python directly:
 ```bash
-# Make sure abogen is installed
-pip install -e /path/to/abogen
+.venv/bin/python webui/backend/main.py  # Linux/Mac
+.venv\Scripts\python.exe webui/backend/main.py  # Windows
 ```
 
 **Frontend Build Error:**
