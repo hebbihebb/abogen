@@ -89,7 +89,7 @@ Both the original Abogen Qt GUI and the new WebUI have been tested with:
 ## What Might Not Work ⚠️
 
 - **Some edge cases** in WebUI-specific features
-- **Desktop GUI**: Original Abogen desktop application isn't modified
+- **Desktop GUI**: works but is janky with F5-TTS, logging and subs break.
 
 ## Original Project
 
